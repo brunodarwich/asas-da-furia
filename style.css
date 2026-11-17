@@ -19,6 +19,10 @@ button:focus-visible{outline:3px solid #fff;outline-offset:4px}
 #sound[aria-pressed="true"]{color:#ffae57}
 .controls{position:absolute;bottom:2.4%;left:50%;transform:translateX(-50%);width:max-content;max-width:98%;text-align:center;background:#071522dc;color:#e7f6f8;padding:.55em 1em;font-size:.8em}
 .controls b{color:#ffab63}
+.ejection{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);display:grid;justify-items:center;gap:.55em;width:max-content;padding:.75em 1.2em;background:#391c23ee;border:2px solid #ff9389;color:#fff4e7;text-align:center;font-size:clamp(12px,2vw,24px);box-shadow:0 0 0 3px #24151bc4}
+#eject{min-height:44px;padding:.35em .8em;background:#ffae57;color:#211415;border:0;font-weight:bold;touch-action:manipulation}
+#eject:hover{background:#ffd497}
+#eject kbd{margin-left:.35em;padding:.08em .28em;border:1px solid currentColor;font-size:.8em}
 .overlay{display:flex;align-items:center;padding:3% 7%;background:linear-gradient(90deg,#061323f7,#071927de 35%,#07192944 64%,transparent)}
 .panel{width:min(100%,460px)}
 .eyebrow{font-size:clamp(8px,1vw,15px);font-weight:bold;letter-spacing:.23em;color:#a2e6ef;margin:0 0 .8em}
@@ -27,15 +31,21 @@ h1 em{font-style:normal;color:#ffae57}
 #description{font-size:clamp(8px,1.25vw,18px);line-height:1.35;max-width:32ch;margin:1em 0}
 #action{display:inline-flex;gap:1.5em;align-items:center;padding:.65em .85em;background:#ffae57;color:#211415;border:0;box-shadow:4px 4px #9c4c2f;font-weight:bold;font-size:clamp(9px,1.4vw,20px)}
 #action:hover{background:#ffd497}
-dl{display:grid;grid-template-columns:repeat(4,max-content);gap:.65em 1.35em;font-size:clamp(7px,.95vw,14px);margin:1.3em 0 0}
-dt{font-weight:bold;color:#bbf3fc}
-dd{margin:.15em 0 0;color:#d2e0e2}
-@media(max-width:550px){.controls{display:none}dl{gap:.4em 1.3em}.overlay{padding:2% 5%}}
+#show-tutorial,#restart{margin-left:.65em;padding:.65em .85em;background:#102737;color:#f2fbff;border:1px solid #638d9e;font-size:clamp(10px,1.4vw,20px)}
+#show-tutorial:hover,#restart:hover{background:#1d435a}
+#tutorial{width:min(34rem,calc(100% - 1.5rem));max-height:calc(100dvh - 1.5rem);padding:clamp(1rem,4vw,2rem);background:#102737;color:#e9faff;border:2px solid #638d9e;line-height:1.5;font-size:clamp(13px,2vw,16px)}
+#tutorial::backdrop{background:#061323ce}
+#tutorial h2{margin:0;color:#ffae57}
+#tutorial ol{padding-left:1.5em}
+#tutorial li+li{margin-top:.65em}
+#tutorial kbd{color:#ffe0ac}
+#tutorial button{min-height:44px;padding:.5em .8em;background:#ffae57;color:#211415;border:0;font-weight:bold}
+@media(max-width:550px){.controls{display:none}.overlay{padding:2% 5%}}
 .touch-controls{display:none}
 @media (pointer:coarse), (hover:none){
   body.touch-device{overflow:auto;min-height:100dvh;padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);align-content:center}
   .touch-device .game{width:min(100%,177.7778dvh)}
-  .touch-device.playing-touch .controls,.touch-device #guide{display:none}
+  .touch-device.playing-touch .controls{display:none}
   .touch-device.playing-touch .touch-controls:not([hidden]){display:flex}
   .touch-controls{width:min(100%,640px);align-items:center;justify-content:space-between;gap:8px;padding:10px 12px;touch-action:none;user-select:none}
   .touch-steer,.touch-altitude{display:flex;align-items:center;gap:5px}

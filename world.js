@@ -136,7 +136,36 @@ function createWorld() {
   const shadowPixels = shadows.getImageData(0, 0, MAP_SIZE, MAP_SIZE).data;
   const cloudShade = Uint8Array.from(height, (_, i) => shadowPixels[i * 4 + 3] ? 1 : 0);
   const spray = Array.from({length: 1950}, () => [rng() * WORLD_SIZE, rng() * WORLD_SIZE, rng()]);
-  return {map: map.canvas, height, pixels, ocean, index, clouds, cloudShade, spray};
+  const treeRng = randomSeed(31429);
+  const trees = [];
+  const treeArt = ['#277047', '#387f41', '#326742'].map(treeSprite);
+  for (let y = 4; y < MAP_SIZE; y += 8) {
+    for (let x = 4; x < MAP_SIZE; x += 8) {
+      const tx = (x + treeRng() * 8 - 4) * MAP_SCALE;
+      const ty = (y + treeRng() * 8 - 4) * MAP_SCALE;
+      const at = index(tx, ty);
+      if (ocean[at] || height[at] < 6 || height[at] > 105 || treeRng() < .32) continue;
+      trees.push({x: tx, y: ty, z: height[at], size: 13 + treeRng() * 12,
+        art: treeArt[Math.floor(treeRng() * treeArt.length)]});
+    }
+  }
+  return {map: map.canvas, height, pixels, ocean, index, clouds, cloudShade, spray, trees};
+}
+
+function treeSprite(green) {
+  const ctx = surface(14, 18);
+  ctx.fillStyle = '#674831';
+  ctx.fillRect(6, 10, 3, 8);
+  ctx.fillStyle = '#164939';
+  ctx.fillRect(3, 2, 8, 13);
+  ctx.fillRect(1, 5, 12, 8);
+  ctx.fillStyle = green;
+  ctx.fillRect(4, 0, 6, 12);
+  ctx.fillRect(2, 4, 10, 6);
+  ctx.fillStyle = '#6ba354';
+  ctx.fillRect(4, 2, 4, 4);
+  ctx.fillRect(3, 5, 3, 3);
+  return ctx.canvas;
 }
 
 function cloudSprite(seed, shadow = false) {
@@ -167,18 +196,27 @@ function cloudSprite(seed, shadow = false) {
 // Cada entrada representa uma fatia horizontal na altura z.
 const AIRCRAFT_MODELS = {
   falcao(x, y, z) {
-    const body = y >= -16 && x <= Math.min(4, Math.floor((18 - y) * .45));
-    const wing = z <= 2 && x >= 3 && y >= -9 - x * .29 && y <= 12 - x * 1.29;
-    const tail = x >= 4 && x <= 8 && y >= -18 && y <= -11 && z <= 2;
-    const fin = x >= 5 && x <= 6 && y >= -17 && y <= -10 - z && z <= 7;
-    if (x <= 2 && y >= 3 && y <= 11 && z >= 4 && z <= 6) {
-      return z === 6 ? '#7defff' : '#25869f';
+    const bodyWidth = Math.min((18 - y) * .39, 5 - Math.max(0, -y - 5) * .35);
+    const body = y >= -15 && x <= bodyWidth && z <= (x <= 2 && y < 12 ? 4 : 2);
+    const leadingEdge = 13 - x * 1.36;
+    const trailingEdge = x < 10 ? -5 - x * .51 : -10 - (x - 10) * .66;
+    const wing = x >= 3 && y >= trailingEdge && y <= leadingEdge && z <= (x <= 6 ? 3 : 2);
+    const engine = y >= -18 && y <= -4 && Math.abs(x - 5) <= (y < -14 ? 1 : 2) && z <= 4;
+    const stabilizer = x >= 5 && x <= 9 && y >= -18 && y <= -12 - (x - 5) * .7 && z <= 1;
+    const fin = x >= 6 && x <= 7 && y >= -17 && y <= -9 - z * .7 && z >= 3 && z <= 7;
+    const canopyWidth = Math.min(2, (13 - y) * .63, (y - 1) * .8);
+    if (x <= canopyWidth && z >= 4 && z <= (y >= 4 && y <= 10 ? 6 : 5)) {
+      if (z >= 5 && x === 0 && y >= 6) return '#b5f7ff';
+      return z >= 5 ? '#58c9e6' : '#24738f';
     }
-    if ((wing && x >= 12) || (fin && z >= 4) || (tail && y <= -16)) {
-      return z === 0 ? '#a7472e' : '#ff9d36';
+    if (y === -18 && engine) return z >= 1 && z <= 3 ? '#111726' : '#536687';
+    if ((wing && x >= 12) || (fin && (z === 7 || y <= -16)) || (stabilizer && x >= 8)) {
+      return ['#9d442c', '#db672d', '#ff9e38', '#ffc064'][Math.min(z, 3)];
     }
-    if (y === -18 && x >= 4 && x <= 7 && z === 1) return '#101c2d';
-    if (wing || tail || fin || (body && z <= (x <= 2 ? 4 : 3))) return 'hull';
+    if (engine && z === 4 && y === -13) return '#334568';
+    if (wing && z === 3 && x >= 5 && y >= -5 && y <= leadingEdge - 1) return '#536b9c';
+    if (wing && z === 2 && y > leadingEdge - 1 && x > 6) return '#7f95bf';
+    if (wing || stabilizer || fin || engine || body) return 'hull';
   },
   droneA(x, y, z) {
     const core = x <= 7 - Math.abs(y) * .39 && z <= (x <= 3 && Math.abs(y) <= 8 ? 5 : 3);
@@ -229,6 +267,25 @@ function aircraftSlices(model) {
   return layers;
 }
 
+function aircraftProjection(yaw, pitch, roll, overhead) {
+  const cy = Math.cos(yaw), sy = Math.sin(yaw);
+  const cp = Math.cos(pitch), sp = Math.sin(pitch);
+  const cr = Math.cos(roll), sr = Math.sin(roll);
+  const elevation = overhead ? Math.PI / 2 : .50;
+  const ce = Math.cos(elevation), se = Math.sin(elevation);
+  return (x, y, z, point) => {
+    const across = x * cr + z * sr;
+    const up = z * cr - x * sr;
+    const forward = y * cp - up * sp;
+    const vertical = y * sp + up * cp;
+    const depth = forward * cy - across * sy;
+    point.x = across * cy + forward * sy;
+    point.y = -depth * se - vertical * ce;
+    point.depth = depth * ce - vertical * se;
+    return point;
+  };
+}
+
 function aircraftSprite(slices, yaw, pitch, roll, overhead) {
   const ctx = surface(54, 54);
   const image = ctx.createImageData(54, 54);
@@ -236,21 +293,14 @@ function aircraftSprite(slices, yaw, pitch, roll, overhead) {
   const points = new Uint32Array(pixels.length);
   const zBuffer = new Float32Array(pixels.length).fill(Infinity);
   const texelOffsets = [0, 1, 54, 55];
-  const cy = Math.cos(yaw), sy = Math.sin(yaw);
-  const cp = Math.cos(pitch), sp = Math.sin(pitch);
-  const cr = Math.cos(roll), sr = Math.sin(roll);
-  const elevation = overhead ? Math.PI / 2 : .50;
-  const ce = Math.cos(elevation), se = Math.sin(elevation);
+  const project = aircraftProjection(yaw, pitch, roll, overhead);
+  const point = {};
   for (const slice of slices) {
     for (const p of slice) {
-      const across = p.x * cr + p.z * sr;
-      const up = p.z * cr - p.x * sr;
-      const forward = p.y * cp - up * sp;
-      const vertical = p.y * sp + up * cp;
-      const depth = forward * cy - across * sy;
-      const x = 27 + Math.round(across * cy + forward * sy);
-      const y = 27 + Math.round(-depth * se - vertical * ce);
-      const order = depth * ce - vertical * se;
+      project(p.x, p.y, p.z, point);
+      const x = 27 + Math.round(point.x);
+      const y = 27 + Math.round(point.y);
+      const order = point.depth;
       for (const offset of texelOffsets) {
         const i = y * 54 + x + offset;
         if (order >= zBuffer[i]) continue;

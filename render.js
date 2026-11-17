@@ -44,26 +44,30 @@ function createRenderer(canvas, world) {
       sprites.set(key, aircraftSprite(layers[ship.model], yaw * Math.PI / 32, pitch / 9, roll / 9, view.top));
     }
     const size = clamp(p.scale * (ship.model === 'falcao' ? 82 : 63), 7, 150);
+    const left = Math.round(p.x - size / 2);
+    const top = Math.round(p.y - size / 2);
+    const width = Math.round(size);
     if (ship.boost) {
-      const direction = angleDelta(ship.yaw, view.yaw);
-      const x = p.x - Math.sin(direction) * size * .27;
-      const y = p.y + Math.cos(direction) * size * (view.top ? .27 : .13);
-      const glow = Math.max(2, Math.round(size * .048));
-      target.save();
-      target.translate(Math.round(x), Math.round(y));
-      target.rotate(direction);
-      for (const side of [-1, 1]) {
-        const nozzle = side * glow * 1.2;
+      const project = aircraftProjection(yaw * Math.PI / 32, pitch / 9, roll / 9, view.top);
+      const scale = width / 54;
+      for (const nozzle of [-5, 5]) {
+        const start = project(nozzle, -18, 0, {});
+        const end = project(nozzle, -27, 0, {});
+        const length = Math.hypot(end.x - start.x, end.y - start.y) * scale;
+        const glow = Math.max(1, 1.6 * scale);
+        target.save();
+        target.translate(left + (27.5 + start.x) * scale, top + (27.5 + start.y) * scale);
+        target.rotate(Math.atan2(start.x - end.x, end.y - start.y));
         target.fillStyle = '#d15447';
-        target.fillRect(nozzle - glow, -glow, glow * 2, glow * 4);
+        target.fillRect(-glow, -glow, glow * 2, glow + length);
         target.fillStyle = '#ffab52';
-        target.fillRect(nozzle - glow * .65, 0, glow * 1.3, glow * 2.8);
+        target.fillRect(-glow * .65, 0, glow * 1.3, length * .78);
         target.fillStyle = '#fff4ca';
-        target.fillRect(nozzle - glow * .35, 0, glow * .7, glow * 1.5);
+        target.fillRect(-glow * .35, 0, glow * .7, length * .48);
+        target.restore();
       }
-      target.restore();
     }
-    target.drawImage(sprites.get(key), Math.round(p.x - size / 2), Math.round(p.y - size / 2), Math.round(size), Math.round(size));
+    target.drawImage(sprites.get(key), left, top, width, width);
   }
 
   function camera(state) {
@@ -73,12 +77,13 @@ function createRenderer(canvas, world) {
     const yaw = top ? 0 : p.yaw;
     const sin = Math.sin(yaw);
     const cos = Math.cos(yaw);
+    const zoom = state.pilotMode ? 1.25 : clamp(.79 - (p.z - 230) * .00045, .48, .89);
+    const fallOffset = state.pilotMode === 'falling' ? 93 / zoom : 0;
     const x = top ? p.x : p.x - sin * (chase ? 124 : -8);
-    const y = top ? p.y : p.y + cos * (chase ? 124 : -8);
+    const y = top ? p.y - fallOffset : p.y + cos * (chase ? 124 : -8);
     const z = p.z + (chase ? 36 : 5);
     const pitch = chase ? p.pitch * .63 - .22 : p.pitch;
     const horizon = 240 + Math.tan(pitch) * FOCAL;
-    const zoom = clamp(.79 - (p.z - 230) * .00045, .48, .89);
     const tilt = top ? 0 : -Math.sin(p.roll) * (chase ? .12 : .19);
     return {
       top, yaw, sin, cos, x, y, z, horizon, zoom, tilt,
@@ -211,13 +216,20 @@ function createRenderer(canvas, world) {
       if (p && p.x > -160 && p.x < target.canvas.width + 160 &&
         p.y > -160 && p.y < target.canvas.height + 160 && p.depth < 2200) visible.push({item, kind, p});
     };
-    for (const cloud of world.clouds) add({...cloud,
-      x: cloud.x + state.time * CLOUD_WIND_X, y: cloud.y + state.time * CLOUD_WIND_Y}, 'cloud');
+    if (!state.pilotMode) {
+      for (const cloud of world.clouds) add({...cloud,
+        x: cloud.x + state.time * CLOUD_WIND_X, y: cloud.y + state.time * CLOUD_WIND_Y}, 'cloud');
+    }
+    for (const tree of world.trees) add(tree, 'tree');
     for (const enemy of state.enemies) add(enemy, 'ship');
     if (state.camera !== 2 && state.player.hp > 0) add(state.player, 'ship');
+    if (state.wreck) add(state.wreck, 'wreck');
     for (const shot of state.shots) add(shot, 'shot');
     for (const particle of state.particles) add(particle, 'particle');
-    visible.sort((a, b) => b.p.depth - a.p.depth);
+    visible.sort((a, b) => view.top && a.kind === 'tree' && b.kind === 'tree'
+      ? a.p.y - b.p.y
+      : (b.kind === 'tree' && view.top ? Infinity : b.p.depth) -
+        (a.kind === 'tree' && view.top ? Infinity : a.p.depth));
     for (const {item, kind, p} of visible) {
       const x = Math.round(p.x), y = Math.round(p.y);
       if (kind === 'cloud') {
@@ -225,8 +237,16 @@ function createRenderer(canvas, world) {
         if (view.top && Math.abs(item.z - state.player.z) < 40) target.globalAlpha = .57;
         target.drawImage(item.art, Math.round(x - w / 2), Math.round(y - w / 3), Math.round(w), Math.round(w * .68));
         target.globalAlpha = 1;
+      } else if (kind === 'tree') {
+        const h = Math.round(clamp(item.size * p.scale, 2, 105));
+        const w = Math.max(2, Math.round(h * .78));
+        target.drawImage(item.art, x - Math.round(w / 2), y - h + 2, w, h);
       } else if (kind === 'ship') {
         drawAircraft(target, item, view, p);
+      } else if (kind === 'wreck') {
+        const ground = world.height[world.index(item.x, item.y)];
+        const lift = clamp((item.z - ground) * .12, 0, 29);
+        drawAircraft(target, item, view, {...p, y: p.y - lift, scale: p.scale * .8});
       } else if (kind === 'shot') {
         const duration = Math.min(.03, (item.hostile ? 1.85 : .92) - item.life);
         const tail = view.project({x: item.x - item.dx * duration, y: item.y - item.dy * duration, z: item.z - item.dz * duration});
@@ -245,6 +265,62 @@ function createRenderer(canvas, world) {
         drawParticle(target, item, p, x, y);
       }
     }
+  }
+
+  function drawPilot(state, view) {
+    const pilot = state.player;
+    const p = view.project(pilot);
+    const swimming = state.pilotMode === 'swimming';
+    const parachute = state.pilotMode === 'parachute';
+    const stride = pilot.speed > 0 ? Math.round(Math.sin(state.time * 21) * 3) : 0;
+    ctx.save();
+    ctx.translate(Math.round(p.x), Math.round(p.y));
+    if (swimming) {
+      ctx.rotate(pilot.yaw);
+      ctx.fillStyle = '#b5e4ec';
+      ctx.fillRect(-10, 1 + stride, 4, 2);
+      ctx.fillRect(6, 1 - stride, 4, 2);
+      ctx.fillRect(-3, 9, 6, 1);
+    } else if (parachute) {
+      const ground = world.height[world.index(pilot.x, pilot.y)];
+      const lift = Math.min(54, Math.round((pilot.z - ground) * .24));
+      ctx.fillStyle = '#10273777';
+      ctx.fillRect(-7, 1, 14, 5);
+      ctx.translate(0, -lift);
+      ctx.rotate(Math.sin(state.time * 4) * .10);
+      polygon('#182f3c', [[-27,-28],[-22,-37],[-12,-43],[12,-43],[22,-37],[27,-28],[14,-21],[-14,-21]]);
+      polygon('#fb9950', [[-24,-29],[-20,-35],[-10,-41],[10,-41],[20,-35],[24,-29],[13,-24],[-13,-24]]);
+      polygon('#ffe8b8', [[-9,-41],[9,-41],[13,-24],[-13,-24]]);
+      ctx.strokeStyle = '#fff1d5';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(-23, -28);
+      ctx.lineTo(-4, -2);
+      ctx.moveTo(23, -28);
+      ctx.lineTo(4, -2);
+      ctx.stroke();
+    }
+    ctx.fillStyle = '#172b34';
+    ctx.fillRect(-5, -6, 10, 13);
+    ctx.fillStyle = '#ffae57';
+    ctx.fillRect(-4, -4, 8, swimming ? 9 : 10);
+    ctx.fillStyle = '#eadac0';
+    ctx.fillRect(-3, -10, 6, 7);
+    ctx.fillStyle = '#263e4a';
+    ctx.fillRect(-2, -6, 4, 2);
+    if (!swimming) {
+      ctx.fillRect(-4, 5, 3, 4 + stride);
+      ctx.fillRect(1, 5, 3, 4 - stride);
+    }
+    ctx.restore();
+    if (!state.shore) return;
+    const bearing = Math.atan2(delta(state.shore.x, pilot.x), -delta(state.shore.y, pilot.y));
+    ctx.save();
+    ctx.translate(p.x + Math.sin(bearing) * 35, p.y - Math.cos(bearing) * 35);
+    ctx.rotate(bearing);
+    polygon('#15333c', [[0,-9],[-7,5],[7,5]]);
+    polygon('#ffe1a1', [[0,-6],[-4,3],[4,3]]);
+    ctx.restore();
   }
 
   function drawParticle(target, item, p, x, y) {
@@ -419,6 +495,7 @@ function createRenderer(canvas, world) {
       const rewind = point => ({...point, x: point.x - point.dx * lag, y: point.y - point.dy * lag, z: point.z - point.dz * lag});
       state = {...state, time: Math.max(0, state.time - lag),
         player: interpolate(state.player, weight),
+        wreck: state.wreck && interpolate(state.wreck, weight),
         enemies: state.enemies.map(enemy => interpolate(enemy, weight)),
         shots: state.shots.map(rewind), particles: state.particles.map(rewind)
       };
@@ -426,8 +503,9 @@ function createRenderer(canvas, world) {
     const view = camera(state);
     if (view.top) {
       drawTop(view, state.time);
-      drawTrails(ctx, state, view);
+      if (!state.pilotMode) drawTrails(ctx, state, view);
       drawObjects(ctx, state, view);
+      if (state.pilotMode && state.pilotMode !== 'falling') drawPilot(state, view);
     } else {
       drawTerrain(view, state.time);
       drawTrails(scene, state, view);
@@ -446,7 +524,7 @@ function createRenderer(canvas, world) {
       }
     }
     if (state.running) {
-      drawMarkers(state, view);
+      if (!state.pilotMode) drawMarkers(state, view);
       if (state.hit > 0) {
         ctx.fillStyle = `rgba(234,63,58,${state.hit * .4})`;
         ctx.fillRect(0, 0, WIDTH, HEIGHT);

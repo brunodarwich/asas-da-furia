@@ -6,15 +6,22 @@ const waveLabel = document.querySelector('#wave');
 const scoreLabel = document.querySelector('#score');
 const cameraLabel = document.querySelector('#camera');
 const overlay = document.querySelector('.overlay');
-const guide = document.querySelector('#guide');
+const tutorial = document.querySelector('#tutorial');
+const showTutorial = document.querySelector('#show-tutorial');
 const title = document.querySelector('#title');
 const eyebrow = document.querySelector('#eyebrow');
 const description = document.querySelector('#description');
 const action = document.querySelector('#action');
+const restart = document.querySelector('#restart');
+const ejection = document.querySelector('#ejection');
+const ejectButton = document.querySelector('#eject');
+const flightGuide = document.querySelector('#flight-guide');
+const pilotGuide = document.querySelector('#pilot-guide');
 const sound = document.querySelector('#sound');
 const altitudeKeys = document.querySelector('#altitude-keys');
 const touchControls = document.querySelector('.touch-controls');
 const touchAltitude = document.querySelector('.touch-altitude');
+const touchActions = document.querySelector('.touch-actions');
 const stick = document.querySelector('#stick');
 const touchDevice = matchMedia('(pointer:coarse), (hover:none)');
 const audio = createFlightAudio();
@@ -31,6 +38,7 @@ const WAVE_DRONE_MODELS = [
 ];
 const FRAME = 1 / 60;
 const PARTICLE_LIMIT = 270;
+const pilotLabels = {falling: 'EM QUEDA', parachute: 'PARAQUEDAS', swimming: 'NADANDO', walking: 'EM TERRA'};
 let state;
 let status = 'intro';
 let firing = false;
@@ -50,16 +58,20 @@ function makePlayer() {
 function makeState() {
   return {player: makePlayer(), time: 0, camera: 0, score: 0, wave: 0, running: false,
     enemies: [], particles: [], shots: [], trail: [], trailTime: 0, banner: 0,
-    waveDelay: 0, hit: 0, muzzle: 0, pointer: {x: MID_X, y: MID_Y}, messageDelay: 0};
+    waveDelay: 0, hit: 0, muzzle: 0, pointer: {x: MID_X, y: MID_Y}, pilotMode: null, wreck: null, shore: null};
 }
 
 function refreshHud() {
   integrity.value = Math.ceil(state.player.hp);
   waveLabel.textContent = `${state.wave + 1} / ${WAVE_SIZES.length}`;
   scoreLabel.textContent = String(state.score).padStart(4, '0');
-  cameraLabel.textContent = cameraNames[state.camera];
+  cameraLabel.textContent = pilotLabels[state.pilotMode] ?? cameraNames[state.camera];
+  flightGuide.hidden = Boolean(state.pilotMode);
+  pilotGuide.hidden = !state.pilotMode || state.pilotMode === 'falling';
   altitudeKeys.hidden = state.camera !== 0;
-  touchAltitude.hidden = state.camera !== 0;
+  touchAltitude.hidden = Boolean(state.pilotMode) || state.camera !== 0;
+  touchActions.hidden = Boolean(state.pilotMode);
+  ejection.hidden = state.pilotMode !== 'falling';
 }
 
 function releaseInput() {
@@ -78,6 +90,9 @@ function setStatus(next) {
   game.classList.toggle('playing', state.running);
   hud.hidden = !state.running;
   overlay.hidden = state.running;
+  if (!state.running) ejection.hidden = true;
+  restart.hidden = next !== 'paused' || !state.pilotMode;
+  showTutorial.hidden = next !== 'intro';
   refreshTouchControls();
   audio.setPlaying(state.running);
   if (state.running) {
@@ -86,11 +101,10 @@ function setStatus(next) {
     return;
   }
   releaseInput();
-  guide.hidden = next !== 'intro';
   const screens = {
-    paused: ['MISSÃO EM CURSO', 'PAUSA', 'Pressione Esc ou retome o voo.', 'Retomar missão'],
-    won: ['ARQUIPÉLAGO SEGURO', 'MISSÃO<br><em>CUMPRIDA</em>', `Três ondas derrubadas · ${state.score} pontos`, 'Jogar novamente'],
-    lost: ['CAÇA FORA DE COMBATE', 'MISSÃO<br><em>ENCERRADA</em>', `Onda ${state.wave + 1} de 3 · ${state.score} pontos`, 'Tentar novamente']
+    paused: ['MISSÃO EM CURSO', 'PAUSA', 'Pressione Esc para continuar.', 'Retomar missão'],
+    lost: ['CAÇA FORA DE COMBATE', 'MISSÃO<br><em>ENCERRADA</em>', 'O avião atingiu a superfície antes da ejeção.', 'Tentar novamente'],
+    won: ['ARQUIPÉLAGO SEGURO', 'MISSÃO<br><em>CUMPRIDA</em>', `Três ondas derrubadas · ${state.score} pontos`, 'Jogar novamente']
   };
   if (!screens[next]) return;
   [eyebrow.textContent, title.innerHTML, description.textContent] = screens[next];
@@ -234,6 +248,7 @@ function updatePlayer(dt) {
   p.z = Math.min(490, p.z + p.verticalSpeed * dt);
   if (p.z >= 490) p.verticalSpeed = Math.min(0, p.verticalSpeed);
   terrainContact(p, vx, vy);
+  if (state.pilotMode) return;
   seaWake(p, dt);
   p.cooldown -= dt;
   if ((firing || held('Fire')) && p.cooldown <= 0) {
@@ -344,7 +359,115 @@ function damage(amount) {
   if (p.hp <= 0 || state.hit > .16) return;
   p.hp = Math.max(0, p.hp - amount);
   state.hit = .3;
-  if (!p.hp) burst(p, true);
+  if (!p.hp) {
+    burst(p, false);
+    state.pilotMode = 'falling';
+    state.camera = 0;
+    state.banner = 0;
+    state.muzzle = 0;
+    state.trail.length = 0;
+    state.enemies.length = 0;
+    const clearance = Math.max(0, p.z - world.height[world.index(p.x, p.y)]);
+    state.wreck = {...p, elapsed: 0, duration: clamp(1.8 + clearance / 110, 2, 4.5),
+      initialZ: p.z, smokeIn: 0};
+    p.boost = false;
+    releaseInput();
+  }
+  refreshHud();
+}
+
+function eject() {
+  if (!state.running || state.pilotMode !== 'falling') return;
+  const p = state.player;
+  p.z = state.wreck.z + 24;
+  p.previousPose = null;
+  p.roll = 0;
+  p.pitch = 0;
+  p.speed = 0;
+  state.pilotMode = 'parachute';
+  refreshHud();
+}
+
+function updateWreck(dt) {
+  const wreck = state.wreck;
+  if (!wreck) return;
+  rememberPose(wreck);
+  wreck.elapsed += dt;
+  const progress = Math.min(1, wreck.elapsed / wreck.duration);
+  wreck.yaw += dt * (.5 + progress * .9);
+  wreck.course = wreck.yaw;
+  wreck.roll += dt * 3.5;
+  wreck.pitch = lerp(-.18, -1.02, progress);
+  wreck.x = wrap(wreck.x + Math.sin(wreck.yaw) * wreck.speed * .72 * dt);
+  wreck.y = wrap(wreck.y - Math.cos(wreck.yaw) * wreck.speed * .72 * dt);
+  const cell = world.index(wreck.x, wreck.y);
+  const ground = world.height[cell];
+  wreck.z = lerp(Math.max(wreck.initialZ * (1 - progress * progress), ground + 3), ground, progress ** 4);
+  if (state.pilotMode === 'falling') {
+    const p = state.player;
+    rememberPose(p);
+    p.x = wreck.x;
+    p.y = wreck.y;
+    p.z = wreck.z;
+    p.yaw = p.course = wreck.yaw;
+  }
+  wreck.smokeIn -= dt;
+  if (wreck.smokeIn <= 0) {
+    const tail = 16;
+    emit({x: wrap(wreck.x - Math.sin(wreck.yaw) * tail), y: wrap(wreck.y + Math.cos(wreck.yaw) * tail),
+      z: wreck.z, dx: 0, dy: 0, dz: 9, size: 9, life: 1.15, type: 'smoke', color: '#27313c'});
+    wreck.smokeIn = .055;
+  }
+  if (progress < 1) return;
+  burst(wreck, true);
+  if (world.ocean[cell]) spray(wreck, 18);
+  state.wreck = null;
+  if (state.pilotMode === 'falling') setStatus('lost');
+}
+
+function nearestLand(p) {
+  let best = Infinity;
+  let shore = null;
+  for (let i = 0; i < world.ocean.length; i++) {
+    if (world.ocean[i]) continue;
+    const x = (i % MAP_SIZE + .5) * MAP_SCALE;
+    const y = (Math.floor(i / MAP_SIZE) + .5) * MAP_SCALE;
+    const dx = delta(x, p.x), dy = delta(y, p.y);
+    const distance = dx * dx + dy * dy;
+    if (distance >= best) continue;
+    best = distance;
+    shore = {x, y};
+  }
+  return shore;
+}
+
+function updatePilot(dt) {
+  const p = state.player;
+  rememberPose(p);
+  const parachute = state.pilotMode === 'parachute';
+  const usingStick = Math.hypot(stickX, stickY) > .14;
+  const x = Number(held('KeyD') || held('ArrowRight')) - Number(held('KeyA') || held('ArrowLeft')) + (usingStick ? stickX : 0);
+  const y = Number(held('KeyS') || held('ArrowDown')) - Number(held('KeyW') || held('ArrowUp')) + (usingStick ? stickY : 0);
+  const magnitude = Math.hypot(x, y);
+  const maxSpeed = parachute ? 42 : state.pilotMode === 'swimming' ? 52 : 77;
+  p.speed = maxSpeed * Math.min(1, magnitude);
+  if (magnitude > 0) {
+    p.yaw = p.course = Math.atan2(x, -y);
+    p.x = wrap(p.x + x / magnitude * p.speed * dt);
+    p.y = wrap(p.y + y / magnitude * p.speed * dt);
+  }
+  const cell = world.index(p.x, p.y);
+  const ground = world.height[cell];
+  if (parachute) {
+    p.z -= 68 * dt;
+    if (p.z > ground) return;
+  }
+  p.z = ground;
+  const mode = world.ocean[cell] ? 'swimming' : 'walking';
+  if (mode === state.pilotMode) return;
+  if (parachute && mode === 'swimming') spray(p, 13);
+  state.pilotMode = mode;
+  state.shore = mode === 'swimming' ? nearestLand(p) : null;
   refreshHud();
 }
 
@@ -406,12 +529,14 @@ function step(dt) {
   state.muzzle = Math.max(0, state.muzzle - dt);
   state.banner = Math.max(0, state.banner - dt);
   updateParticles(dt);
-  if (state.player.hp === 0) {
-    state.messageDelay += dt;
-    if (state.messageDelay > .72) setStatus('lost');
+  if (state.pilotMode) {
+    if (state.pilotMode !== 'falling') updatePilot(dt);
+    updateWreck(dt);
+    updateProjectiles(dt);
     return;
   }
   updatePlayer(dt);
+  if (state.pilotMode) return;
   updateDrones(dt);
   updateProjectiles(dt);
   if (state.player.hp === 0) return;
@@ -459,6 +584,7 @@ function moveStick(event) {
 }
 
 function nextCamera() {
+  if (state.pilotMode) return;
   state.camera = (state.camera + 1) % cameraNames.length;
   if (stickPointer !== null) steerTouch(stickX, stickY);
   else {
@@ -475,7 +601,7 @@ function nextCamera() {
 }
 
 function roll(side) {
-  if (state.player.rollTime) return;
+  if (state.pilotMode || state.player.rollTime) return;
   state.player.rollTime = .64;
   state.player.rollSide = side;
 }
@@ -522,6 +648,9 @@ action.addEventListener('click', () => {
   if (status === 'paused') setStatus('playing');
   else start();
 });
+restart.addEventListener('click', start);
+showTutorial.addEventListener('click', () => tutorial.showModal());
+ejectButton.addEventListener('click', eject);
 sound.addEventListener('click', () => {
   muted = !muted;
   sound.setAttribute('aria-pressed', String(muted));
@@ -547,6 +676,12 @@ window.addEventListener('keydown', event => {
     return;
   }
   if (status !== 'playing') return;
+  if (state.pilotMode === 'falling' && event.code === 'KeyE') {
+    event.preventDefault();
+    if (!event.repeat) eject();
+    return;
+  }
+  if (state.pilotMode && event.code.startsWith('Arrow')) event.preventDefault();
   keys.add(event.code);
   if (event.code === 'Space') {
     if (event.target instanceof HTMLButtonElement) return;
