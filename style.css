@@ -1,0 +1,53 @@
+:root{color-scheme:dark;font-family:"Courier New",monospace;color:#fff;background:#071522}
+*{box-sizing:border-box}
+body{margin:0;min-height:100dvh;display:grid;place-items:center;overflow:hidden}
+.game{width:min(100vw,177.7778dvh);aspect-ratio:16/9;position:relative;isolation:isolate;background:#194c77;overflow:hidden}
+canvas{display:block;width:100%;height:100%;image-rendering:pixelated}
+.game.playing canvas{cursor:none}
+[hidden]{display:none!important}
+.hud,.overlay{position:absolute;inset:0}
+.hud{pointer-events:none;display:flex;gap:clamp(9px,2.6vw,40px);align-items:flex-start;padding:clamp(8px,1.7vw,25px);font-size:clamp(10px,1.18vw,18px);text-shadow:1px 2px #061620}
+.readout{display:grid;gap:.25em}
+.readout span,.hud-right span{color:#daf5ff;font-size:.78em;font-weight:bold;letter-spacing:.14em}
+meter{appearance:none;width:clamp(48px,11vw,160px);height:.68em;border:1px solid #9cc0ca;background:#143c51}
+meter::-webkit-meter-bar{height:100%;background:#143c51;border:0;border-radius:0}
+meter::-webkit-meter-optimum-value{background:#a9ef9c}
+.hud-right{margin-left:auto;display:flex;align-items:center;gap:.9em}
+button{font:inherit;cursor:pointer}
+button:focus-visible{outline:3px solid #fff;outline-offset:4px}
+#pause,#sound{pointer-events:auto;border:1px solid #91b9c5;background:#102737;color:#e9faff;padding:.2em .55em}
+#sound[aria-pressed="true"]{color:#ffae57}
+.controls{position:absolute;bottom:2.4%;left:50%;transform:translateX(-50%);width:max-content;max-width:98%;text-align:center;background:#071522dc;color:#e7f6f8;padding:.55em 1em;font-size:.8em}
+.controls b{color:#ffab63}
+.overlay{display:flex;align-items:center;padding:3% 7%;background:linear-gradient(90deg,#061323f7,#071927de 35%,#07192944 64%,transparent)}
+.panel{width:min(100%,460px)}
+.eyebrow{font-size:clamp(8px,1vw,15px);font-weight:bold;letter-spacing:.23em;color:#a2e6ef;margin:0 0 .8em}
+h1{font-family:Impact,"Arial Black",sans-serif;font-size:clamp(27px,8vw,118px);line-height:.83;letter-spacing:.005em;margin:0;color:#f6fcfb;text-shadow:4px 4px #0c263d}
+h1 em{font-style:normal;color:#ffae57}
+#description{font-size:clamp(8px,1.25vw,18px);line-height:1.35;max-width:32ch;margin:1em 0}
+#action{display:inline-flex;gap:1.5em;align-items:center;padding:.65em .85em;background:#ffae57;color:#211415;border:0;box-shadow:4px 4px #9c4c2f;font-weight:bold;font-size:clamp(9px,1.4vw,20px)}
+#action:hover{background:#ffd497}
+dl{display:grid;grid-template-columns:repeat(4,max-content);gap:.65em 1.35em;font-size:clamp(7px,.95vw,14px);margin:1.3em 0 0}
+dt{font-weight:bold;color:#bbf3fc}
+dd{margin:.15em 0 0;color:#d2e0e2}
+@media(max-width:550px){.controls{display:none}dl{gap:.4em 1.3em}.overlay{padding:2% 5%}}
+.touch-controls{display:none}
+@media (pointer:coarse), (hover:none){
+  body.touch-device{overflow:auto;min-height:100dvh;padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);align-content:center}
+  .touch-device .game{width:min(100%,177.7778dvh)}
+  .touch-device.playing-touch .controls,.touch-device #guide{display:none}
+  .touch-device.playing-touch .touch-controls:not([hidden]){display:flex}
+  .touch-controls{width:min(100%,640px);align-items:center;justify-content:space-between;gap:8px;padding:10px 12px;touch-action:none;user-select:none}
+  .touch-steer,.touch-altitude{display:flex;align-items:center;gap:5px}
+  #stick{display:grid;place-items:center;flex:none;width:76px;height:76px;border-radius:50%;border:2px solid #638d9e;background:#0e2639;touch-action:none}
+  #stick span{width:33px;height:33px;border-radius:50%;background:#b4d3dc;border:3px solid #416579;pointer-events:none}
+  .touch-altitude{flex-direction:column}
+  .touch-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:5px}
+  .touch-controls button{min-width:39px;min-height:44px;padding:0 7px;border:1px solid #638d9e;border-radius:4px;background:#102737;color:#f2fbff;font-size:12px;font-weight:bold;touch-action:none}
+  .touch-controls [data-flight-key="Fire"]{background:#ffae57;color:#211415;border-color:#ffcf97}
+  .touch-controls button:active,.touch-controls button.is-held{background:#bbdef0;color:#102737}
+  @media (orientation:landscape){
+    .touch-device.playing-touch .touch-controls{position:fixed;bottom:env(safe-area-inset-bottom);inset-inline:0;margin-inline:auto;width:100%;padding-inline:max(12px,env(safe-area-inset-left)) max(12px,env(safe-area-inset-right));pointer-events:none}
+    .touch-controls button,#stick{pointer-events:auto}
+  }
+}
