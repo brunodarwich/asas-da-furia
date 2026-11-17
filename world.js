@@ -165,26 +165,61 @@ function cloudSprite(seed, shadow = false) {
 }
 
 // Cada entrada representa uma fatia horizontal na altura z.
-function aircraftSlices(drone) {
+const AIRCRAFT_MODELS = {
+  falcao(x, y, z) {
+    const body = y >= -16 && x <= Math.min(4, Math.floor((18 - y) * .45));
+    const wing = z <= 2 && x >= 3 && y >= -9 - x * .29 && y <= 12 - x * 1.29;
+    const tail = x >= 4 && x <= 8 && y >= -18 && y <= -11 && z <= 2;
+    const fin = x >= 5 && x <= 6 && y >= -17 && y <= -10 - z && z <= 7;
+    if (x <= 2 && y >= 3 && y <= 11 && z >= 4 && z <= 6) {
+      return z === 6 ? '#7defff' : '#25869f';
+    }
+    if ((wing && x >= 12) || (fin && z >= 4) || (tail && y <= -16)) {
+      return z === 0 ? '#a7472e' : '#ff9d36';
+    }
+    if (y === -18 && x >= 4 && x <= 7 && z === 1) return '#101c2d';
+    if (wing || tail || fin || (body && z <= (x <= 2 ? 4 : 3))) return 'hull';
+  },
+  droneA(x, y, z) {
+    const core = x <= 7 - Math.abs(y) * .39 && z <= (x <= 3 && Math.abs(y) <= 8 ? 5 : 3);
+    const shoulders = x >= 4 && x <= 14 && y >= -7 && y <= 10 - x * .75 && z <= 2;
+    if (core && z === 5 && x * x + (y - 1) ** 2 <= 11) {
+      return x <= 1 && Math.abs(y - 1) <= 1 ? '#ffc1eb' : '#f83d93';
+    }
+    if (shoulders && z === 2 && x >= 8 && y >= -5 && y <= -2) return '#d92a79';
+    if (core || shoulders) return 'hull';
+  },
+  droneB(x, y, z) {
+    const core = x <= 4 && y >= -15 && y <= 2 && z <= (x < 3 ? 5 : 3);
+    const inner = y < -3 ? 3 : 9 + y * .23;
+    const outer = y < 3 ? 15 : 15 - (y - 3) * .29;
+    const arm = y >= -10 && y <= 17 && x >= inner && x <= outer && z <= 2;
+    if (core && z === 5 && x <= 1 && y >= -3 && y <= 0) return '#ff77b6';
+    if (arm && z === 2 && x < inner + 2 && y <= 10) return '#e93687';
+    if (core || arm) return 'hull';
+  },
+  droneC(x, y, z) {
+    const core = x <= Math.min(7, 11 - Math.abs(y) * .37) && z <= (x < 5 ? 5 : 4);
+    const pod = x >= 6 && x <= 15 && y >= -6 && y <= 7 && z <= (x >= 14 ? 2 : 3);
+    if (core && x >= 2 && x <= 4 && y >= 5 && y <= 7 && z === 5) return '#ff6ba9';
+    if (pod && x >= 10 && x <= 13 && y >= 4 && y <= 5 && z === 3) return '#df367c';
+    if (core || pod) return 'hull';
+  }
+};
+
+function aircraftSlices(model) {
   const layers = [];
+  const shape = AIRCRAFT_MODELS[model];
+  const palette = model === 'falcao'
+    ? ['#18243c', '#2c3c60', '#485e8a', '#637baa', '#8b9fc6']
+    : ['#211a33', '#36294b', '#524066', '#6c5483', '#8e72a2'];
   for (let z = 0; z <= 7; z++) {
     const slice = [];
     for (let y = -18; y <= 18; y++) {
       for (let x = -15; x <= 15; x++) {
-        const ax = Math.abs(x);
-        const body = y >= -15 && y <= 18 && ax <= Math.min(4, Math.floor((18 - y) * .39));
-        const wing = z <= 2 && ax <= 15 && ax >= 3 && y >= -12 + ax * .36 && y <= 11 - ax * 1.06;
-        const tail = y < -9 && y >= -17 && ax <= 9 + (y + 15) * .7 && ax <= 10 && z <= 1;
-        const fin = z >= 3 && ax >= 4 && ax <= 5 && y < -9 - (z - 3) * .5 && y > -17;
-        const cabin = y > 1 && y < 11 && ax <= 2 && z >= 3 && z <= 5;
-        if (!(wing || tail || fin || cabin || (body && z <= (ax > 2 ? 2 : 4)))) continue;
-        let color = ['#182835', '#314659', '#557185', '#91a8b3'][Math.min(z, 3)];
-        if (cabin) color = z === 5 ? (x === -1 ? '#c1f2eb' : '#65aab8') : '#316b82';
-        if ((wing && ax >= 11) || fin || (y < -11 && ax <= 3)) {
-          color = drone ? (z < 2 ? '#9f2846' : '#fb6772') : (z < 2 ? '#a7472e' : '#ffab58');
-        } else if (!cabin && (x + y + z) % 9 === 0) {
-          color = '#6d8794';
-        }
+        const material = shape(Math.abs(x), y, z);
+        if (!material) continue;
+        const color = material === 'hull' ? palette[Math.min(z, palette.length - 1)] : material;
         const rgb = Number.parseInt(color.slice(1), 16);
         slice.push({x, y, z: z - 2, color: rgba(rgb >> 16, (rgb >> 8) & 255, rgb & 255)});
       }

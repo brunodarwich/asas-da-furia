@@ -18,7 +18,7 @@ function createRenderer(canvas, world) {
   for (let d = 16; d < 2150; d += 3 + d * .034) {
     distances.push({d, scale: FOCAL / d, clear: 1 - clamp((d - 210) / 1880, 0, .92)});
   }
-  const layers = [aircraftSlices(false), aircraftSlices(true)];
+  const layers = Object.fromEntries(Object.keys(AIRCRAFT_MODELS).map(model => [model, aircraftSlices(model)]));
   const sprites = new Map();
 
   function interpolate(ship, weight) {
@@ -38,12 +38,12 @@ function createRenderer(canvas, world) {
     const yaw = Math.round(angleDelta(ship.yaw, view.yaw) * 32 / Math.PI);
     const pitch = Math.round(ship.pitch * 9);
     const roll = Math.round(angleDelta(ship.roll, 0) * 9);
-    const key = [ship.drone, view.top, yaw, pitch, roll].join('/');
+    const key = [ship.model, view.top, yaw, pitch, roll].join('/');
     if (!sprites.has(key)) {
       if (sprites.size >= 360) sprites.delete(sprites.keys().next().value);
-      sprites.set(key, aircraftSprite(layers[Number(ship.drone)], yaw * Math.PI / 32, pitch / 9, roll / 9, view.top));
+      sprites.set(key, aircraftSprite(layers[ship.model], yaw * Math.PI / 32, pitch / 9, roll / 9, view.top));
     }
-    const size = clamp(p.scale * (ship.drone ? 63 : 82), 7, 150);
+    const size = clamp(p.scale * (ship.model === 'falcao' ? 82 : 63), 7, 150);
     if (ship.boost) {
       const direction = angleDelta(ship.yaw, view.yaw);
       const x = p.x - Math.sin(direction) * size * .27;
@@ -289,41 +289,48 @@ function createRenderer(canvas, world) {
   }
 
   function cockpit(state) {
-    polygon('#152332', [[0,0],[125,0],[76,17],[41,47],[0,108]]);
-    polygon('#152332', [[640,0],[515,0],[564,17],[599,47],[640,108]]);
-    polygon('#60737a', [[0,72],[34,37],[74,12],[118,0],[95,0],[54,13],[17,40],[0,60]]);
-    polygon('#60737a', [[640,72],[606,37],[566,12],[522,0],[545,0],[586,13],[623,40],[640,60]]);
-    polygon('#fba15f', [[18,51],[32,40],[71,17],[79,22],[38,47],[24,62]]);
-    polygon('#fba15f', [[622,51],[608,40],[569,17],[561,22],[602,47],[616,62]]);
-    const dash = [[0,265],[140,265],[163,249],[250,249],[272,263],[368,263],[390,249],[477,249],[499,265],[640,265],[640,360],[0,360]];
-    polygon('#687782', dash);
-    polygon('#202b36', dash.map(([x,y]) => [x,y+4]));
-    polygon('#313f49', [[0,271],[140,271],[166,255],[247,255],[269,270],[371,270],
-      [393,255],[475,255],[498,271],[640,271],[640,277],[0,277]]);
-    ctx.fillStyle = '#708992';
-    for (const x of [12, 143, 174, 238, 402, 466, 497, 628]) ctx.fillRect(x, 273, 3, 2);
-    ctx.fillStyle = '#12212b';
-    ctx.fillRect(13, 329, 614, 3);
-    ctx.fillStyle = '#465b65';
-    ctx.fillRect(13, 332, 614, 1);
-    ctx.fillStyle = '#102023';
-    ctx.fillRect(23, 279, 134, 45);
-    ctx.fillRect(483, 279, 134, 45);
+    for (const side of [0, 1]) {
+      const panel = (color, points) => polygon(color, points.map(([x, y]) => [side ? WIDTH - x : x, y]));
+      panel('#151b32', [[0,0],[96,0],[85,10],[53,10],[0,47]]);
+      panel('#515e83', [[0,0],[48,0],[0,34]]);
+      panel('rgba(112,240,255,.12)', [[74,0],[99,0],[29,110],[14,113]]);
+      panel('#141a31', [[0,91],[16,114],[85,285],[64,309],[0,125]]);
+      panel('#58648f', [[0,102],[9,117],[77,288],[68,298],[0,122]]);
+      panel('#ff8c23', [[0,101],[12,128],[23,156],[15,161],[0,125]]);
+      panel('#ff8c23', [[47,233],[58,226],[81,281],[72,293]]);
+      panel('#29344f', [[0,323],[75,274],[128,274],[147,360],[0,360]]);
+      panel('#fd8b23', [[0,337],[79,284],[116,284],[108,298],[0,354]]);
+    }
+    const dash = [[101,360],[111,299],[140,270],[268,270],[286,253],[354,253],
+      [372,270],[500,270],[529,299],[539,360]];
+    polygon('#101626', dash);
+    polygon('#737fa7', [[111,300],[142,272],[270,272],[288,255],[352,255],[370,272],[498,272],
+      [529,300],[511,298],[494,281],[367,281],[349,264],[291,264],[273,281],[146,281],[129,298]]);
+    polygon('#343e5c', [[115,360],[128,301],[151,282],[276,282],[293,266],[347,266],
+      [364,282],[489,282],[512,301],[525,360]]);
+    ctx.fillStyle = '#1a2238';
+    ctx.fillRect(151, 290, 124, 50);
+    ctx.fillRect(365, 290, 124, 50);
+    ctx.fillStyle = '#0e201b';
+    ctx.fillRect(156, 295, 114, 40);
+    ctx.fillRect(370, 295, 114, 40);
     ctx.font = 'bold 9px monospace';
     ctx.fillStyle = '#a5f5ab';
-    ctx.fillText('VEL', 32, 291);
-    ctx.fillText('ALT', 492, 291);
+    ctx.fillText('VEL', 164, 307);
+    ctx.fillText('ALT', 378, 307);
     ctx.font = 'bold 20px monospace';
-    ctx.fillText(String(Math.round(state.player.speed)).padStart(3, '0'), 32, 314);
-    ctx.fillText(String(Math.round(state.player.z)).padStart(3, '0'), 492, 314);
+    ctx.fillText(String(Math.round(state.player.speed)).padStart(3, '0'), 164, 329);
+    ctx.fillText(String(Math.round(state.player.z)).padStart(3, '0'), 378, 329);
     for (let i = 0; i < 13; i++) {
       ctx.fillStyle = i < state.player.hp / 8 ? '#53b97d' : '#29443d';
-      ctx.fillRect(553 + (i % 7) * 7, 311 - Math.floor(i / 7) * 9, 5, 5);
+      ctx.fillRect(424 + (i % 7) * 7, 325 - Math.floor(i / 7) * 9, 5, 5);
       ctx.fillStyle = i < state.player.speed / 23 ? '#53b97d' : '#29443d';
-      ctx.fillRect(96 + (i % 7) * 7, 311 - Math.floor(i / 7) * 9, 5, 5);
+      ctx.fillRect(210 + (i % 7) * 7, 325 - Math.floor(i / 7) * 9, 5, 5);
     }
     ctx.save();
-    ctx.translate(320, 306);
+    ctx.translate(320, 312);
+    ctx.fillStyle = '#141a2e';
+    ctx.fillRect(-34, -34, 68, 68);
     ctx.beginPath();
     ctx.arc(0, 0, 24, 0, TAU);
     ctx.clip();
@@ -340,23 +347,29 @@ function createRenderer(canvas, world) {
     ctx.strokeStyle = '#a1afb8';
     ctx.lineWidth = 3;
     ctx.beginPath();
-    ctx.arc(320, 306, 25, 0, TAU);
+    ctx.arc(320, 312, 25, 0, TAU);
     ctx.stroke();
     ctx.lineWidth = 1;
     ctx.fillStyle = '#f4a363';
-    for (let i = 0; i < 7; i++) ctx.fillRect(279 + i * 13, 269, 8, 3);
+    for (const bank of [250, 373]) {
+      for (let i = 0; i < 3; i++) ctx.fillRect(bank + i * 8, 347, 5, 5);
+    }
 
     ctx.fillStyle = '#b4ffa5';
-    const center = 177 + state.player.pitch * 82;
+    const center = MID_Y + state.player.pitch * 82;
     for (let i = -4; i <= 4; i++) {
       const y = Math.round(center + i * 12);
       if (y < 88 || y > 227) continue;
-      const length = i % 2 === 0 ? 13 : 6;
-      ctx.fillRect(225, y, length, 1);
-      ctx.fillRect(415 - length, y, length, 1);
+      if (Math.abs(y - MID_Y) < 15) continue;
+      const length = i % 2 === 0 ? 16 : 8;
+      ctx.fillRect(MID_X - length / 2, y, length, 1);
     }
-    ctx.fillRect(225, 125, 1, 90);
-    ctx.fillRect(414, 125, 1, 90);
+    ctx.strokeStyle = '#b4ffa5';
+    ctx.strokeRect(MID_X - 8.5, MID_Y - 8.5, 17, 17);
+    ctx.fillRect(MID_X - 25, MID_Y, 11, 1);
+    ctx.fillRect(MID_X + 15, MID_Y, 11, 1);
+    ctx.fillRect(MID_X - 3, MID_Y, 7, 1);
+    ctx.fillRect(MID_X, MID_Y - 3, 1, 7);
   }
 
   function screenPoint(p, view) {

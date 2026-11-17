@@ -24,6 +24,11 @@ const cameraNames = ['VISTA SUPERIOR', 'PERSEGUIÇÃO', 'COCKPIT'];
 const keys = new Set();
 const touchKeys = new Map();
 const WAVE_SIZES = [2, 3, 4];
+const WAVE_DRONE_MODELS = [
+  ['droneA', 'droneB'],
+  ['droneC', 'droneA', 'droneB'],
+  ['droneA', 'droneB', 'droneC', 'droneC']
+];
 const FRAME = 1 / 60;
 const PARTICLE_LIMIT = 270;
 let state;
@@ -39,7 +44,7 @@ const held = code => keys.has(code) || touchKeys.has(code);
 function makePlayer() {
   return {x: 2070, y: 1350, z: 236, yaw: -.43, pitch: 0, roll: 0, hp: 100,
     course: -.43, turnRate: 0, verticalSpeed: 0, wakeIn: 0, groundContact: false,
-    speed: 153, boost: false, rollTime: 0, rollSide: 1, cooldown: 0, drone: false};
+    speed: 153, boost: false, rollTime: 0, rollSide: 1, cooldown: 0, model: 'falcao'};
 }
 
 function makeState() {
@@ -103,7 +108,7 @@ function spawnWave() {
     state.enemies.push({
       x: wrap(p.x + Math.sin(yaw) * distance), y: wrap(p.y - Math.cos(yaw) * distance),
       z: clamp(p.z + (i % 3 - 1) * 21, 165, 460), yaw: yaw + Math.PI, pitch: 0, roll: 0,
-      drone: true, hp, maxHp: hp, speed: 95 + state.wave * 12,
+      model: WAVE_DRONE_MODELS[state.wave][i], hp, maxHp: hp, speed: 95 + state.wave * 12,
       phase: 1 + i * 2.1, fireIn: 1.65 + i * .65
     });
   }
