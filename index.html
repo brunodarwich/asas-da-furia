@@ -5,14 +5,17 @@
 <meta name="description" content="Combate aéreo arcade em pixel art. Pilote um caça sobre um arquipélago e enfrente três ondas de drones.">
 <title>Asas da Fúria</title>
 <link rel="stylesheet" href="style.css">
-<main class="game" aria-label="Asas da Fúria">
-  <canvas id="flight" width="640" height="360" aria-label="Área de voo"></canvas>
+<main class="game intro" aria-label="Asas da Fúria">
+  <canvas id="flight" width="640" height="360" aria-label="Área de jogo"></canvas>
   <div class="hud" hidden>
     <div class="readout"><span>INTEGRIDADE</span><meter id="integrity" min="0" max="100" value="100"></meter></div>
     <div class="readout"><span>ONDA</span><strong id="wave">1 / 3</strong></div>
+    <div class="readout" hidden><span>VIDA</span><strong id="pilot-health">100</strong></div>
+    <div class="readout" hidden><span>PISTOLA</span><strong id="pilot-ammo">12 / 36</strong></div>
     <div class="readout"><span>PONTOS</span><strong id="score">0000</strong></div>
     <div class="hud-right"><span id="camera">VISTA SUPERIOR</span><button id="sound" type="button" aria-label="Silenciar" aria-pressed="false">♪</button><button id="pause" type="button" aria-label="Pausar">Ⅱ</button></div>
-    <div class="controls"><span id="flight-guide">Mouse · pilotar <b>•</b> Clique · disparar <b>•</b> Shift · impulso <b>•</b> Q / E · rolar <b>•</b> <span id="altitude-keys">W / S · altitude <b>•</b> </span>Espaço · câmera <b>•</b> </span><span id="pilot-guide" hidden>WASD / setas · mover <b>•</b> </span>Esc · pausa</div>
+    <div class="controls"><span id="flight-guide">Mouse · pilotar <b>•</b> Clique · disparar <b>•</b> Shift · impulso <b>•</b> Q / E · rolar <b>•</b> <span id="altitude-keys">W / S · altitude <b>•</b> </span>Espaço · câmera <b>•</b> </span><span id="pilot-guide" hidden>WASD / setas · mover <b>•</b> <span id="ground-guide" hidden>Mouse · mirar <b>•</b> <span id="pistol-guide">Clique · disparar <b>•</b> R · recarregar <b>•</b> Shift · andar <b>•</b> C · agachar <b>•</b> </span>Espaço · câmera <b>•</b> </span></span>Esc · pausa</div>
+    <p id="pilot-prompt" hidden>Clique na arena para mirar</p>
   </div>
   <section id="ejection" class="ejection" aria-label="Aviso de ejeção" hidden>
     <strong role="alert">AVIÃO EM QUEDA!</strong>
@@ -25,6 +28,7 @@
       <p id="description">Sobrevoe o arquipélago e derrube três ondas de drones.</p>
       <button id="action" type="button">Iniciar missão <span aria-hidden="true">▸</span></button>
       <button id="show-tutorial" type="button" aria-haspopup="dialog">Ver tutorial</button>
+      <a id="solo-tactical" href="operacao.html">FPS tático solo <span aria-hidden="true">↗</span></a>
       <button id="restart" type="button" hidden>Reiniciar missão</button>
     </div>
   </section>
@@ -35,6 +39,7 @@
     <li><strong>Pilote o caça.</strong> Mova o mouse para guiar o avião. Na vista superior, use <kbd>W</kbd> / <kbd>S</kbd> para subir ou descer. <kbd>Espaço</kbd> troca a câmera e <kbd>Q</kbd> / <kbd>E</kbd> fazem o avião rolar.</li>
     <li><strong>Enfrente três ondas de drones.</strong> Clique para disparar e use <kbd>Shift</kbd> para acelerar. No celular, use a alavanca e os botões na tela.</li>
     <li><strong>Ejete antes do impacto.</strong> Quando aparecer o aviso de queda, pressione <kbd>E</kbd> ou toque em <strong>Ejetar</strong>. O paraquedas abre sozinho. Use <kbd>WASD</kbd>, as setas ou a alavanca para guiar a descida, nadar e caminhar pelas ilhas. No mar, siga a seta até a costa.</li>
+    <li><strong>Encontre o resgate.</strong> Ao tocar a água, nade em primeira pessoa até a costa. Clique na arena para mirar com o mouse ou arraste na tela. Em terra, use a pistola contra a patrulha, <kbd>R</kbd> para recarregar, <kbd>Shift</kbd> para andar e <kbd>C</kbd> para agachar. Siga a bússola até o helicóptero. <kbd>Espaço</kbd> ou o botão <strong>Câmera</strong> troca a vista.</li>
   </ol>
   <form method="dialog"><button type="submit" autofocus>Voltar ao menu</button></form>
 </dialog>
@@ -51,10 +56,13 @@
     <button type="button" id="touch-roll">Rolar</button>
     <button type="button" data-flight-key="ShiftLeft">Impulso</button>
     <button type="button" data-flight-key="Fire">Disparar</button>
+    <button type="button" data-flight-key="KeyR" hidden>Recarregar</button>
   </div>
 </div>
 <script src="world.js"></script>
+<script src="character-art.js"></script>
 <script src="render.js"></script>
 <script src="audio.js"></script>
+<script src="ground.js"></script>
 <script src="game.js"></script>
 </html>

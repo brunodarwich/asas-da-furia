@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="description" content="FPS tático solo de Asas da Fúria. Dispute rodadas 5 contra 5 com bots na estação Farol.">
+  <title>Operação Farol · Asas da Fúria</title>
+  <link rel="stylesheet" href="operacao.css">
+</head>
+<body>
+  <main class="operation">
+    <header class="header">
+      <a href="index.html">← <span>Asas da Fúria</span></a>
+      <span class="mode">FPS TÁTICO <i></i> SOLO 5×5</span>
+      <button id="pause-operation" type="button" hidden>Pausar</button>
+    </header>
+    <section class="arena" aria-label="Operação Farol">
+      <canvas id="arena" width="480" height="270" tabindex="-1" aria-label="Vista em primeira pessoa"></canvas>
+      <div id="hud" class="tactical-hud" hidden>
+        <canvas id="radar" class="radar" width="140" height="110" aria-label="Mapa da estação"></canvas>
+        <div class="match-status">
+          <div class="scoreboard">
+            <div class="score allies"><span>ALIADOS</span><strong id="allies-score">0</strong><small id="allies-alive"></small></div>
+            <div class="round"><span id="round-number"></span><strong id="timer"></strong><small id="role"></small></div>
+            <div class="score rivals"><span>RIVAIS</span><strong id="rivals-score">0</strong><small id="rivals-alive"></small></div>
+          </div>
+          <p id="objective"></p>
+        </div>
+        <div id="feed" class="feed" aria-live="polite"></div>
+        <div id="crosshair" class="crosshair"></div>
+        <div id="feedback" class="feedback" role="status" hidden></div>
+        <div class="vitals"><span>VIDA <strong id="health"></strong></span><span>COLETE <strong id="armor"></strong></span><span>CRÉDITOS <strong id="credits"></strong></span></div>
+        <div class="ammo"><span id="utility" hidden>FUMAÇA ×1</span><span id="weapon"></span><strong id="magazine"></strong><small id="reserve"></small></div>
+        <div id="buy-hint" class="buy-hint" hidden><button id="shop-button" type="button">B · Equipamento</button></div>
+      </div>
+
+      <div id="overlay" class="overlay">
+        <div class="panel">
+          <p class="eyebrow" id="eyebrow">ESTAÇÃO COSTEIRA</p>
+          <h1 id="operation-title">OPERAÇÃO<br><em>FAROL</em></h1>
+          <p id="summary">Instale ou desarme o dispositivo nos pontos A e B. Jogue 5 contra 5 com bots, troque de lado após 12 rodadas e chegue a 13 vitórias.</p>
+          <button id="play-operation" class="primary" type="button">Iniciar partida <span aria-hidden="true">→</span></button>
+        </div>
+      </div>
+
+      <section id="shop" class="shop" aria-labelledby="shop-title" hidden>
+        <div class="shop-panel">
+          <div class="shop-header"><h2 id="shop-title">Equipamento</h2><strong id="shop-credits"></strong></div>
+          <div class="shop-items">
+            <button type="button" data-buy="smg"><span>1 · Submetralhadora<small>Rajadas rápidas em curta distância</small></span><strong>1.250</strong></button>
+            <button type="button" data-buy="rifle"><span>2 · Carabina<small>Mais dano e precisão em tiros curtos</small></span><strong>2.100</strong></button>
+            <button type="button" data-buy="vest"><span>3 · Colete<small>Absorve parte do dano recebido</small></span><strong>550</strong></button>
+            <button type="button" data-buy="kit"><span>4 · Kit de desarme<small>Na defesa, reduz o tempo de desarme pela metade</small></span><strong>400</strong></button>
+            <button type="button" data-buy="smoke"><span>5 · Granada de fumaça<small>Cobre um corredor temporariamente</small></span><strong>300</strong></button>
+          </div>
+          <button id="close-shop" class="primary" type="button">Voltar à rodada →</button>
+        </div>
+      </section>
+
+      <div id="touch" class="touch" aria-label="Controles por toque" hidden>
+        <div class="touch-move">
+          <button type="button" data-key="KeyW" aria-label="Avançar">▲</button>
+          <button type="button" data-key="KeyA" aria-label="Mover à esquerda">◀</button>
+          <button type="button" data-key="KeyS" aria-label="Recuar">▼</button>
+          <button type="button" data-key="KeyD" aria-label="Mover à direita">▶</button>
+        </div>
+        <div class="touch-actions">
+          <button type="button" data-key="KeyR">Recarregar</button>
+          <button type="button" data-key="KeyE">Operar</button>
+          <button type="button" data-key="Swap">Trocar arma</button>
+          <button type="button" data-key="Fire">Disparar</button>
+          <button type="button" data-key="KeyQ">Fumaça</button>
+        </div>
+      </div>
+    </section>
+    <footer>
+      <div class="desktop-guide">
+        <span><kbd>WASD</kbd> mover</span>
+        <span><kbd>Mouse</kbd> mirar e atirar</span>
+        <span><kbd>Shift</kbd> andar</span>
+        <span><kbd>C</kbd> agachar</span>
+        <span><kbd>1 / 2</kbd> armas</span>
+        <span><kbd>R</kbd> recarregar</span>
+        <span><kbd>E</kbd> instalar ou desarmar</span>
+        <span><kbd>G</kbd> soltar dispositivo</span>
+        <span><kbd>Q</kbd> fumaça</span>
+        <span><kbd>B</kbd> comprar</span>
+        <span><kbd>Esc</kbd> pausar</span>
+      </div>
+      <span class="touch-guide">Arraste na arena para mirar. Segure Operar nos pontos A ou B.</span>
+    </footer>
+  </main>
+  <script src="audio.js"></script>
+  <script src="character-art.js"></script>
+  <script src="operacao-render.js"></script>
+  <script src="operacao.js"></script>
+</body>
+</html>

@@ -3,6 +3,7 @@ const HEIGHT = 360;
 const MID_X = WIDTH / 2;
 const MID_Y = HEIGHT / 2;
 const FOCAL = 297;
+const PILOT_FOCAL = 368;
 
 function createRenderer(canvas, world) {
   const ctx = canvas.getContext('2d', {alpha: false});
@@ -11,6 +12,7 @@ function createRenderer(canvas, world) {
   const terrain = surface(384, 480);
   const terrainFrame = terrain.createImageData(384, 480);
   const terrainPixels = new Uint32Array(terrainFrame.data.buffer);
+  const terrainDepth = new Float32Array(terrainPixels.length);
   const bottom = new Int16Array(384);
   // Índices do mapa para toda a faixa de amostragem, incluindo as bordas.
   const mapCoordinate = Uint16Array.from({length: 4096}, (_, i) => ((i - 2048) % MAP_SIZE + MAP_SIZE) % MAP_SIZE);
@@ -18,8 +20,25 @@ function createRenderer(canvas, world) {
   for (let d = 16; d < 2150; d += 3 + d * .034) {
     distances.push({d, scale: FOCAL / d, clear: 1 - clamp((d - 210) / 1880, 0, .92)});
   }
+  const pilotDistances = [];
+  for (let d = 2; d < 160; d += .75 + d * .034) {
+    pilotDistances.push({d, scale: FOCAL / d, clear: 1});
+  }
+  for (const sample of distances) {
+    if (sample.d >= 160) pilotDistances.push(sample);
+  }
   const layers = Object.fromEntries(Object.keys(AIRCRAFT_MODELS).map(model => [model, aircraftSlices(model)]));
   const sprites = new Map();
+  const pilotArt = makeCharacterArt('pilot');
+  const patrolArt = makeCharacterArt('patrol');
+  const pilotPistol = makeHeldWeaponArt('pistol', true);
+  const splash = pixelArt(72, 18, g => {
+    paintedShape(g, '#274f5e', [[0,9],[14,4],[28,2],[64,4],[71,9],[57,14],[16,16]]);
+    paintedShape(g, '#85b7b5', [[2,9],[14,6],[26,5],[23,7],[12,9],[23,12],[18,13],[8,12]]);
+    paintedShape(g, '#c6d9cb', [[44,4],[59,5],[68,9],[57,12],[51,12],[61,9],[55,7]]);
+    g.fillStyle = '#84b5ba';
+    g.fillRect(28, 15, 18, 1);
+  });
 
   function interpolate(ship, weight) {
     const before = ship.previousPose;
@@ -72,27 +91,33 @@ function createRenderer(canvas, world) {
 
   function camera(state) {
     const p = state.player;
-    const top = state.camera === 0;
-    const chase = state.camera === 1;
-    const yaw = top ? 0 : p.yaw;
+    const pilot = state.pilot;
+    const firstPerson = pilot?.camera === 1;
+    const focal = firstPerson ? PILOT_FOCAL : FOCAL;
+    const top = pilot ? pilot.camera === 2 : state.camera === 0;
+    const chase = pilot ? pilot.camera === 0 : state.camera === 1;
+    const yaw = top ? 0 : (pilot?.yaw ?? p.yaw);
     const sin = Math.sin(yaw);
     const cos = Math.cos(yaw);
-    const zoom = state.pilotMode ? 1.25 : clamp(.79 - (p.z - 230) * .00045, .48, .89);
+    const zoom = state.pilotMode ? PILOT_MAP_ZOOM : clamp(.79 - (p.z - 230) * .00045, .48, .89);
     const fallOffset = state.pilotMode === 'falling' ? 93 / zoom : 0;
-    const x = top ? p.x : p.x - sin * (chase ? 124 : -8);
-    const y = top ? p.y - fallOffset : p.y + cos * (chase ? 124 : -8);
-    const z = p.z + (chase ? 36 : 5);
-    const pitch = chase ? p.pitch * .63 - .22 : p.pitch;
-    const horizon = 240 + Math.tan(pitch) * FOCAL;
+    const setback = pilot ? (chase ? 58 : 0) : chase ? 124 : -8;
+    const x = top ? p.x : p.x - sin * setback;
+    const y = top ? p.y - fallOffset : p.y + cos * setback;
+    let z = p.z + (chase ? 36 : 5);
+    if (firstPerson) z = p.z + (state.pilotMode === 'swimming' ? 5 + Math.sin(state.time * 4) * .6 : pilot.eyeHeight);
+    else if (pilot) z = Math.max(p.z + 29, world.groundHeight(x, y) + 12);
+    const pitch = pilot ? pilot.pitch - (chase ? .10 : 0) : chase ? p.pitch * .63 - .22 : p.pitch;
+    const horizon = 240 + Math.tan(pitch) * focal;
     const tilt = top ? 0 : -Math.sin(p.roll) * (chase ? .12 : .19);
     return {
-      top, yaw, sin, cos, x, y, z, horizon, zoom, tilt,
+      top, firstPerson, groundPerspective: Boolean(pilot) && !top, yaw, sin, cos, x, y, z, horizon, zoom, tilt,
       project(point) {
         const dx = delta(point.x, x), dy = delta(point.y, y);
         if (top) return {x: MID_X + dx * zoom, y: MID_Y + dy * zoom, scale: zoom, depth: -point.z};
         const depth = dx * sin - dy * cos;
         if (depth < 12) return null;
-        const scale = FOCAL / depth;
+        const scale = focal / depth;
         return {x: 384 + (dx * cos + dy * sin) * scale, y: horizon + (z - point.z) * scale, scale, depth};
       }
     };
@@ -132,9 +157,33 @@ function createRenderer(canvas, world) {
     }
   }
 
+  function nearTerrainColor(wx, wy, index, shade, wave) {
+    const {pixels, ocean, height} = world;
+    const left = Math.floor(wx - .5), top = Math.floor(wy - .5);
+    const fx = wx - .5 - left, fy = wy - .5 - top;
+    const row = mapCoordinate[top] * MAP_SIZE;
+    const nextRow = mapCoordinate[top + 1] * MAP_SIZE;
+    const col = mapCoordinate[left], nextCol = mapCoordinate[left + 1];
+    const sameSurface = cell => (ocean[cell] === ocean[index] ? cell : index) * 4;
+    const a = sameSurface(row + col), b = sameSurface(row + nextCol);
+    const c = sameSurface(nextRow + col), d = sameSurface(nextRow + nextCol);
+    const channel = offset => lerp(lerp(pixels[a + offset], pixels[b + offset], fx),
+      lerp(pixels[c + offset], pixels[d + offset], fx), fy);
+    const dryLand = !ocean[index] && height[index] > 4;
+    const grain = dryLand ? ((Math.imul(wx * 4 | 0, 16381) ^ Math.imul(wy * 4 | 0, 12853)) >>> 4 & 15) - 7 : 0;
+    const red = channel(0), green = channel(1), blue = channel(2);
+    const vegetation = dryLand ? Math.max(0, green - red) * .24 : 0;
+    return rgba(clamp(red + wave - shade * 14 + grain + vegetation * .33, 0, 255),
+      clamp(green + wave - shade * 25 + grain - vegetation, 0, 255),
+      clamp(blue + wave - shade * 18 + grain, 0, 255));
+  }
+
   function drawTerrain(view, time) {
     const {height, pixels, ocean, cloudShade} = world;
     bottom.fill(480);
+    const occlude = view.groundPerspective;
+    const focalRatio = view.firstPerson ? PILOT_FOCAL / FOCAL : 1;
+    if (occlude) terrainDepth.fill(Infinity);
     for (let y = 0; y < 480; y++) {
       const band = clamp(Math.floor((y - view.horizon) / 9), -39, 0);
       const farSea = clamp(Math.floor((y - view.horizon) / 3), 0, 13);
@@ -144,7 +193,10 @@ function createRenderer(canvas, world) {
     const shimmer = Math.floor(time * 9);
     const windX = Math.floor(wrap(time * CLOUD_WIND_X) / MAP_SCALE);
     const windY = Math.floor(wrap(time * CLOUD_WIND_Y) / MAP_SCALE);
-    for (const {d, scale, clear} of distances) {
+    for (const sample of occlude ? pilotDistances : distances) {
+      const {d, clear} = sample;
+      const scale = sample.scale * focalRatio;
+      const smoothing = occlude ? clamp((160 - d) / 48, 0, 1) : 0;
       const step = 2 / scale;
       const dx = view.cos * step / MAP_SCALE;
       const dy = view.sin * step / MAP_SCALE;
@@ -153,26 +205,64 @@ function createRenderer(canvas, world) {
       const baseline = view.horizon + view.z * scale;
       if (baseline - 166 * scale >= 480) continue;
       for (let x = 0; x < 384; x++, wx += dx, wy += dy) {
+        const end = bottom[x];
+        if (!end) continue;
         const mx = wx | 0, my = wy | 0;
         const i = mapCoordinate[my] * MAP_SIZE + mapCoordinate[mx];
-        const row = Math.max(0, (baseline - height[i] * scale) | 0);
-        const end = bottom[x];
+        const elevation = smoothing ? lerp(height[i],
+          world.groundHeight((wx - 2048) * MAP_SCALE, (wy - 2048) * MAP_SCALE), smoothing) : height[i];
+        const row = Math.max(0, (baseline - elevation * scale) | 0);
         if (row >= end) continue;
         const shade = cloudShade[mapCoordinate[my - windY] * MAP_SIZE + mapCoordinate[mx - windX]];
         const wave = ocean[i] && ((i * 11 - shimmer) & 255) < 5 ? 26 : 0;
         const p = i * 4;
-        const color = rgba(
+        let color = rgba(
           182 + (pixels[p] + wave - shade * 14 - 182) * clear,
           Math.min(255, 212 + (pixels[p + 1] + wave - shade * 25 - 212) * clear),
           229 + (pixels[p + 2] + wave - shade * 18 - 229) * clear);
+        if (smoothing) {
+          const smooth = nearTerrainColor(wx, wy, i, shade, wave * .5);
+          const mix = shift => lerp((color >>> shift) & 255, (smooth >>> shift) & 255, smoothing);
+          color = rgba(mix(0), mix(8), mix(16));
+        }
         for (let pixel = row * 384 + x, stop = end * 384 + x; pixel < stop; pixel += 384) {
           terrainPixels[pixel] = color;
+          if (occlude) terrainDepth[pixel] = d;
         }
         bottom[x] = row;
       }
     }
     terrain.putImageData(terrainFrame, 0, 0);
     scene.drawImage(terrain.canvas, 0, 0, 768, 480);
+  }
+
+  function clipBehindTerrain(target, p, left, top, right, bottomEdge) {
+    const start = Math.max(0, top), end = Math.min(480, bottomEdge);
+    const nearDepth = p.depth - 2;
+    target.beginPath();
+    for (let col = Math.max(0, left >> 1); start < end && col < Math.min(384, Math.ceil(right / 2)); col++) {
+      if (terrainDepth[start * 384 + col] < nearDepth) continue;
+      let low = start, high = end;
+      while (low < high) {
+        const mid = (low + high) >> 1;
+        if (terrainDepth[mid * 384 + col] >= nearDepth) low = mid + 1;
+        else high = mid;
+      }
+      target.rect(col * 2, start, 2, low - start);
+    }
+    target.clip();
+  }
+
+  function drawTree(target, tree, p, x, y, occlude) {
+    const h = Math.round(clamp(tree.size * p.scale, 2, 105));
+    const w = Math.max(2, Math.round(h * .78));
+    const left = x - Math.round(w / 2), top = y - h + 2;
+    if (occlude) {
+      target.save();
+      clipBehindTerrain(target, p, left, top, left + w, top + h);
+    }
+    target.drawImage(tree.art, left, top, w, h);
+    if (occlude) target.restore();
   }
 
   function drawTrails(target, state, view) {
@@ -211,8 +301,8 @@ function createRenderer(canvas, world) {
 
   function drawObjects(target, state, view) {
     const visible = [];
-    const add = (item, kind) => {
-      const p = view.project(item);
+    const add = (item, kind, point = item) => {
+      const p = view.project(point);
       if (p && p.x > -160 && p.x < target.canvas.width + 160 &&
         p.y > -160 && p.y < target.canvas.height + 160 && p.depth < 2200) visible.push({item, kind, p});
     };
@@ -220,27 +310,53 @@ function createRenderer(canvas, world) {
       for (const cloud of world.clouds) add({...cloud,
         x: cloud.x + state.time * CLOUD_WIND_X, y: cloud.y + state.time * CLOUD_WIND_Y}, 'cloud');
     }
-    for (const tree of world.trees) add(tree, 'tree');
+    for (const tree of world.trees) {
+      if (!view.groundPerspective) {
+        add(tree, 'tree');
+        continue;
+      }
+      const depth = delta(tree.x, view.x) * view.sin - delta(tree.y, view.y) * view.cos;
+      const smoothing = clamp((160 - depth) / 48, 0, 1);
+      add(tree, 'tree', smoothing ? {...tree, z: lerp(tree.z, world.groundHeight(tree.x, tree.y), smoothing)} : tree);
+    }
     for (const enemy of state.enemies) add(enemy, 'ship');
     if (state.camera !== 2 && state.player.hp > 0) add(state.player, 'ship');
     if (state.wreck) add(state.wreck, 'wreck');
     for (const shot of state.shots) add(shot, 'shot');
     for (const particle of state.particles) add(particle, 'particle');
+    if (state.ground) {
+      const ground = state.ground;
+      add(ground.rescue, 'landing');
+      if (ground.rescueIn <= 6) {
+        add({...ground.rescue, z: ground.rescue.z + 13 + ground.rescueIn * 30}, 'helicopter');
+      }
+      if (ground.ship) add(ground.ship, 'patrol');
+      for (const rock of ground.rocks) add(rock, 'rock');
+      for (const shot of ground.tracers) add(shot, 'groundTrace', shot.from);
+      for (const soldier of ground.soldiers) {
+        if (soldier.delay <= 0 && soldier.hp > 0) add(soldier, 'soldier');
+      }
+    }
+    if (state.pilot && !view.firstPerson && !view.top) add(state.player, 'groundPilot');
     visible.sort((a, b) => view.top && a.kind === 'tree' && b.kind === 'tree'
       ? a.p.y - b.p.y
       : (b.kind === 'tree' && view.top ? Infinity : b.p.depth) -
         (a.kind === 'tree' && view.top ? Infinity : a.p.depth));
     for (const {item, kind, p} of visible) {
       const x = Math.round(p.x), y = Math.round(p.y);
+      const occlude = view.groundPerspective && kind !== 'tree' && kind !== 'groundTrace';
+      if (occlude) {
+        const size = kind === 'wreck' || kind === 'shot' ? 150 : Math.ceil(Math.min(p.scale, 14) * 35);
+        target.save();
+        clipBehindTerrain(target, p, x - size, y - size, x + size, y + size);
+      }
       if (kind === 'cloud') {
         const w = clamp(item.size * p.scale * 1.6, 3, 460);
         if (view.top && Math.abs(item.z - state.player.z) < 40) target.globalAlpha = .57;
         target.drawImage(item.art, Math.round(x - w / 2), Math.round(y - w / 3), Math.round(w), Math.round(w * .68));
         target.globalAlpha = 1;
       } else if (kind === 'tree') {
-        const h = Math.round(clamp(item.size * p.scale, 2, 105));
-        const w = Math.max(2, Math.round(h * .78));
-        target.drawImage(item.art, x - Math.round(w / 2), y - h + 2, w, h);
+        drawTree(target, item, p, x, y, view.groundPerspective);
       } else if (kind === 'ship') {
         drawAircraft(target, item, view, p);
       } else if (kind === 'wreck') {
@@ -261,10 +377,222 @@ function createRenderer(canvas, world) {
         }
         target.fillStyle = item.hostile ? '#ffccc1' : '#fff9cc';
         target.fillRect(x, y, size, size);
-      } else {
+      } else if (kind === 'groundTrace') {
+        const end = view.project(item.to);
+        if (end) {
+          target.strokeStyle = '#ffbb708a';
+          target.lineWidth = 1.5;
+          target.beginPath();
+          target.moveTo(x, y);
+          target.lineTo(end.x, end.y);
+          target.stroke();
+        }
+      } else if (kind === 'particle') {
         drawParticle(target, item, p, x, y);
+      } else {
+        drawGroundObject(target, state, kind, p, x, y, item, view);
+      }
+      if (occlude) target.restore();
+    }
+  }
+
+  function drawGroundObject(target, state, kind, projected, x, y, item, view) {
+    const {top} = view;
+    const scale = Math.min(projected.scale, 14);
+    const rect = (color, left, top, width, height) => {
+      target.fillStyle = color;
+      target.fillRect(x + Math.round(left * scale), y + Math.round(top * scale),
+        Math.max(1, Math.round(width * scale)), Math.max(1, Math.round(height * scale)));
+    };
+    if (kind === 'rock') {
+      const radius = item.radius;
+      const height = top ? radius : item.height;
+      target.fillStyle = '#344754';
+      target.beginPath();
+      target.moveTo(x - radius * scale, y);
+      target.lineTo(x - radius * scale * .78, y - height * scale * .66);
+      target.lineTo(x - radius * scale * .28, y - height * scale);
+      target.lineTo(x + radius * scale * .57, y - height * scale * .86);
+      target.lineTo(x + radius * scale, y - height * scale * .35);
+      target.lineTo(x + radius * scale * .86, y + (top ? radius * scale : 0));
+      target.closePath();
+      target.fill();
+      const face = (color, points) => paintedShape(target, color,
+        points.map(([a, b]) => [Math.round(x + a * radius * scale), Math.round(y + b * height * scale)]));
+      face('#7d8472', [[-.78,-.66],[-.28,-1],[.57,-.86],[.16,-.67],[-.31,-.54]]);
+      face('#636c61', [[-.78,-.66],[-.31,-.54],[.16,-.67],[.07,-.34],[-.47,-.13],[-1,0]]);
+      face('#535c53', [[.16,-.67],[.57,-.86],[1,-.35],[.75,-.17],[.07,-.34]]);
+      if (scale > 1) {
+        face('#969681', [[-.65,-.68],[-.25,-.89],[.16,-.83],[-.17,-.77],[-.28,-.66]]);
+        face('#414d4a', [[-.34,-.55],[-.19,-.55],[-.2,-.38],[-.46,-.18],[-.36,-.35]]);
+        face('#747c59', [[.04,-.18],[.55,-.28],[.7,-.18],[.31,-.07]]);
+      }
+    } else if (kind === 'landing') {
+      rect('#363e38', -13, -3, 26, 5);
+      rect('#c5b783', -12, -3, 4, 1);
+      rect('#c5b783', 8, -3, 4, 1);
+      rect('#d8dbc4', -6, -2, 2, 3);
+      rect('#d8dbc4', 4, -2, 2, 3);
+      rect('#d8dbc4', -4, -1, 8, 1);
+      rect('#434b43', -1, -12, 2, 10);
+      rect('#e4b967', -1.5, -13, 3, 2);
+      const glow = .45 + Math.sin(state.time * 6) * .2;
+      rect(`rgba(255,198,112,${glow})`, -2, -13.5, 4, 3);
+    } else if (kind === 'helicopter') {
+      rect('#213e43', -16, -14, 31, 12);
+      rect('#72b48b', -14, -14, 27, 7);
+      rect('#c1ebea', -14, -13, 9, 5);
+      rect('#527b6c', 13, -11, 20, 3);
+      rect('#527b6c', 29, -17, 4, 8);
+      rect('#213e43', -13, 0, 24, 2);
+      rect('#213e43', -6, -3, 2, 4);
+      rect('#213e43', 6, -3, 2, 4);
+      rect('#213e43', -1, -18, 2, 4);
+      const blade = 8 + Math.abs(Math.cos(state.time * 41)) * 22;
+      rect('#d0e7dc', -blade, -19, blade * 2, 1);
+    } else if (kind === 'patrol') {
+      rect('#173244', -24, -7, 48, 8);
+      rect('#a19a88', -20, -10, 39, 5);
+      rect('#536068', -13, -20, 21, 11);
+      rect('#314353', -13, -19, 20, 3);
+      rect('#536068', -1, -29, 2, 10);
+      rect('#ff754d', 1, -28, 7, 4);
+    } else {
+      drawGroundCharacter(target, state, kind === 'groundPilot', scale, x, y, item, view);
+    }
+  }
+
+  function pilotPose(state) {
+    if (state.pilot?.eyeHeight < 9) return 3;
+    if (state.player.speed < 4) return 0;
+    return Math.sin(state.time * (10 + state.player.speed * .12)) > 0 ? 1 : 2;
+  }
+
+  function drawGroundCharacter(target, state, pilot, scale, x, y, item, view) {
+    const art = pilot ? pilotArt : patrolArt;
+    const yaw = pilot ? state.pilot.yaw : item.artYaw ?? 0;
+    const pose = pilot ? pilotPose(state) : item.artPose ?? 0;
+    if (view.top) {
+      target.save();
+      target.translate(x, y);
+      target.rotate(yaw);
+      target.drawImage(art.overhead[pose], -9, -10, 18, 20);
+      target.restore();
+      return;
+    }
+    const towardCamera = Math.atan2(delta(view.x, item.x), -delta(view.y, item.y));
+    const direction = (Math.round(angleDelta(towardCamera, yaw) / (Math.PI / 4)) + 8) % 8;
+    const image = art.poses[direction][scale < .85 ? 0 : pose];
+    const h = Math.max(2, Math.round(scale * 18));
+    const w = Math.max(2, Math.round(h * .75));
+    if (pilot && state.pilotMode === 'swimming') {
+      const bob = Math.round(Math.sin(state.time * 5) * scale * .5);
+      target.drawImage(splash, x - w / 2, y - 5, w, Math.max(2, h / 7));
+      target.drawImage(image, 0, 0, 48, 25, x - w / 2, y - h * .33 + bob, w, Math.max(2, h * .34));
+      return;
+    }
+    if (scale > 1) {
+      target.fillStyle = '#1e28243b';
+      target.fillRect(x - Math.round(w * .25), y - 2, Math.round(w * .5), 3);
+    }
+    target.drawImage(image, Math.round(x - w / 2), y - h, w, h);
+    if (item.flash > 0) {
+      const hand = direction > 4 ? -1 : 1;
+      const reach = direction % 4 === 0 ? .36 : .47;
+      rectFlash(target, x + w * reach * hand, y - h * .54, Math.max(2, scale * 1.2));
+    }
+  }
+
+  function rectFlash(target, x, y, size) {
+    target.fillStyle = '#dd9f64';
+    target.fillRect(x - size, y - size / 2, size * 2, size);
+    target.fillStyle = '#f8e7ba';
+    target.fillRect(x - size * .45, y - size * .3, size, size * .6);
+  }
+
+  function drawGroundHud(state, view) {
+    const ground = state.ground;
+    const pilot = state.pilot;
+    const swimming = state.pilotMode === 'swimming';
+    const shore = state.shore ?? ground?.shore;
+    const dx = shore ? delta(shore.x, state.player.x) : 0;
+    const dy = shore ? delta(shore.y, state.player.y) : 0;
+    const bearing = angleDelta(swimming ? Math.atan2(dx, -dy) : ground.bearing, view.yaw);
+    ctx.fillStyle = '#071522e8';
+    const compact = view.firstPerson;
+    ctx.fillRect(compact ? 244 : 231, 8, compact ? 152 : 178, compact ? 32 : 40);
+    ctx.save();
+    ctx.translate(compact ? 258 : 249, compact ? 24 : 28);
+    ctx.rotate(bearing);
+    if (compact) ctx.scale(.75, .75);
+    polygon('#a3ffbf', [[0,-11],[-7,7],[0,3],[7,7]]);
+    ctx.restore();
+    ctx.font = compact ? 'bold 10px monospace' : 'bold 11px monospace';
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#a3ffbf';
+    const destination = swimming ? 'COSTA · ' + Math.ceil(Math.hypot(dx, dy)) : 'RESGATE · ' + Math.ceil(ground.distance);
+    ctx.fillText(destination + ' m', compact ? 271 : 264, compact ? 21 : 24);
+    ctx.fillStyle = '#e9faff';
+    const remaining = Math.ceil(ground?.rescueIn ?? 0);
+    ctx.fillText(swimming ? 'NADE ATÉ A PRAIA' : remaining > 0 ? `HELICÓPTERO EM ${remaining}s` : 'HELICÓPTERO NO LOCAL',
+      compact ? 271 : 264, compact ? 33 : 38);
+
+    if (swimming && compact) drawSwimmingArms(state);
+    if (state.pilotMode !== 'walking') return;
+    let aim = null;
+    if (!view.firstPerson) {
+      const impact = ground.aim(state.player).point;
+      if (view.top) {
+        const dx = delta(impact.x, state.player.x), dy = delta(impact.y, state.player.y);
+        const scale = Math.min(1, (MID_Y - 28) / (view.zoom * Math.hypot(dx, dy)));
+        aim = {x: MID_X + dx * view.zoom * scale, y: MID_Y + dy * view.zoom * scale};
+      } else {
+        aim = view.project(impact);
       }
     }
+    if (aim || view.firstPerson) {
+      const x = aim ? Math.round(aim.x - (view.top ? 0 : 64)) : MID_X;
+      const y = aim ? Math.round(aim.y - (view.top ? 0 : 60)) : MID_Y;
+      const gap = 2 + Math.round(pilot.spread * 80);
+      ctx.fillStyle = pilot.confirm ? '#ffae57' : '#fff9db';
+      ctx.fillRect(x - gap - 4, y, 4, 1);
+      ctx.fillRect(x + gap + 1, y, 4, 1);
+      ctx.fillRect(x, y - gap - 4, 1, 4);
+      ctx.fillRect(x, y + gap + 1, 1, 4);
+    }
+    if (compact) drawPistol(state);
+    else if (state.muzzle > 0) {
+      if (view.top) drawPistolFlash(MID_X + Math.sin(pilot.yaw) * 14, MID_Y - Math.cos(pilot.yaw) * 14);
+      else drawPistolFlash(359, 263);
+    }
+  }
+
+  function drawPistolFlash(x, y) {
+    polygon('#ffbd58', [[x,y-11],[x+4,y-3],[x+12,y],[x+4,y+3],[x,y+9],[x-4,y+3],[x-10,y],[x-4,y-3]]);
+    polygon('#fff5bb', [[x,y-6],[x+6,y],[x,y+5],[x-5,y]]);
+  }
+
+  function drawSwimmingArms(state) {
+    const reach = Math.min(1, state.player.speed / 40);
+    for (const side of [-1, 1]) {
+      const stroke = Math.sin(state.time * 8 + (side === 1 ? Math.PI : 0));
+      ctx.save();
+      ctx.translate(MID_X + 122 * side, HEIGHT - 15 - Math.round(reach * (stroke + 1) * 17));
+      ctx.scale(side, 1);
+      polygon('#263a38', [[-9,38],[-37,17],[-29,0],[-16,-10],[-6,-7],[14,27],[16,38]]);
+      polygon('#52635a', [[-30,17],[-23,3],[-17,-3],[-10,2],[9,29],[-7,31]]);
+      polygon('#7e7764', [[-29,0],[-30,-7],[-22,-18],[-11,-19],[-4,-13],[-8,-7],[-17,-4],[-23,4]]);
+      polygon('#a49b82', [[-27,-8],[-21,-15],[-13,-16],[-15,-11],[-24,-5]]);
+      ctx.restore();
+    }
+  }
+
+  function drawPistol(state) {
+    const stride = Math.min(1, state.player.speed / 57);
+    const x = 351 + Math.sin(state.time * 12) * stride * 5;
+    const y = 254 + Math.cos(state.time * 24) * stride * 3;
+    const reload = Math.sin(Math.PI * state.pilot.reload / 1.08);
+    drawHeldWeaponArt(ctx, pilotPistol, x, y, 1.4, state.pilot.recoil, reload, state.muzzle > .02);
   }
 
   function drawPilot(state, view) {
@@ -272,15 +600,13 @@ function createRenderer(canvas, world) {
     const p = view.project(pilot);
     const swimming = state.pilotMode === 'swimming';
     const parachute = state.pilotMode === 'parachute';
-    const stride = pilot.speed > 0 ? Math.round(Math.sin(state.time * 21) * 3) : 0;
+    const yaw = state.pilot?.yaw ?? pilot.yaw;
     ctx.save();
     ctx.translate(Math.round(p.x), Math.round(p.y));
     if (swimming) {
-      ctx.rotate(pilot.yaw);
-      ctx.fillStyle = '#b5e4ec';
-      ctx.fillRect(-10, 1 + stride, 4, 2);
-      ctx.fillRect(6, 1 - stride, 4, 2);
-      ctx.fillRect(-3, 9, 6, 1);
+      ctx.rotate(yaw);
+      ctx.drawImage(splash, -14, -2 + Math.round(Math.sin(state.time * 8)), 28, 10);
+      ctx.drawImage(pilotArt.overhead[0], 0, 0, 22, 16, -8, -9, 16, 12);
     } else if (parachute) {
       const ground = world.height[world.index(pilot.x, pilot.y)];
       const lift = Math.min(54, Math.round((pilot.z - ground) * .24));
@@ -289,37 +615,28 @@ function createRenderer(canvas, world) {
       ctx.translate(0, -lift);
       ctx.rotate(Math.sin(state.time * 4) * .10);
       polygon('#182f3c', [[-27,-28],[-22,-37],[-12,-43],[12,-43],[22,-37],[27,-28],[14,-21],[-14,-21]]);
-      polygon('#fb9950', [[-24,-29],[-20,-35],[-10,-41],[10,-41],[20,-35],[24,-29],[13,-24],[-13,-24]]);
-      polygon('#ffe8b8', [[-9,-41],[9,-41],[13,-24],[-13,-24]]);
-      ctx.strokeStyle = '#fff1d5';
+      polygon('#ba7845', [[-24,-29],[-20,-35],[-10,-41],[10,-41],[20,-35],[24,-29],[13,-24],[-13,-24]]);
+      polygon('#d7bf91', [[-9,-41],[9,-41],[13,-24],[-13,-24]]);
+      polygon('#a3a08a', [[-14,-28],[14,-28],[13,-24],[-13,-24]]);
+      polygon('#ca9363', [[-22,-34],[-12,-38],[-15,-27],[-20,-29]]);
+      polygon('#8e5d3e', [[15,-38],[20,-35],[24,-29],[15,-26]]);
+      ctx.strokeStyle = '#c9c5aa';
       ctx.lineWidth = 1;
       ctx.beginPath();
       ctx.moveTo(-23, -28);
       ctx.lineTo(-4, -2);
       ctx.moveTo(23, -28);
       ctx.lineTo(4, -2);
+      ctx.moveTo(-13, -24);
+      ctx.lineTo(-4, -2);
+      ctx.moveTo(13, -24);
+      ctx.lineTo(4, -2);
       ctx.stroke();
+      ctx.drawImage(pilotArt.poses[0][0], -7, -4, 14, 19);
+    } else {
+      ctx.rotate(yaw);
+      ctx.drawImage(pilotArt.overhead[pilotPose(state)], -10, -12, 20, 22);
     }
-    ctx.fillStyle = '#172b34';
-    ctx.fillRect(-5, -6, 10, 13);
-    ctx.fillStyle = '#ffae57';
-    ctx.fillRect(-4, -4, 8, swimming ? 9 : 10);
-    ctx.fillStyle = '#eadac0';
-    ctx.fillRect(-3, -10, 6, 7);
-    ctx.fillStyle = '#263e4a';
-    ctx.fillRect(-2, -6, 4, 2);
-    if (!swimming) {
-      ctx.fillRect(-4, 5, 3, 4 + stride);
-      ctx.fillRect(1, 5, 3, 4 - stride);
-    }
-    ctx.restore();
-    if (!state.shore) return;
-    const bearing = Math.atan2(delta(state.shore.x, pilot.x), -delta(state.shore.y, pilot.y));
-    ctx.save();
-    ctx.translate(p.x + Math.sin(bearing) * 35, p.y - Math.cos(bearing) * 35);
-    ctx.rotate(bearing);
-    polygon('#15333c', [[0,-9],[-7,5],[7,5]]);
-    polygon('#ffe1a1', [[0,-6],[-4,3],[4,3]]);
     ctx.restore();
   }
 
@@ -516,7 +833,7 @@ function createRenderer(canvas, world) {
       ctx.drawImage(scene.canvas, -384, -240);
       ctx.restore();
     }
-    if (state.camera === 2) {
+    if (!state.pilotMode && state.camera === 2) {
       cockpit(state);
       if (state.muzzle > 0) {
         ctx.fillStyle = `rgba(255,191,101,${state.muzzle * 2.3})`;
@@ -525,8 +842,10 @@ function createRenderer(canvas, world) {
     }
     if (state.running) {
       if (!state.pilotMode) drawMarkers(state, view);
-      if (state.hit > 0) {
-        ctx.fillStyle = `rgba(234,63,58,${state.hit * .4})`;
+      if (state.pilot) drawGroundHud(state, view);
+      const hit = state.pilot?.hit ?? state.hit;
+      if (hit > 0) {
+        ctx.fillStyle = `rgba(234,63,58,${hit * .55})`;
         ctx.fillRect(0, 0, WIDTH, HEIGHT);
       }
       if (state.banner > 0) {

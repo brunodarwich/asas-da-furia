@@ -113,6 +113,18 @@ function createWorld() {
   }
   map.putImageData(art, 0, 0);
   const index = (x, y) => Math.floor(wrap(y) / MAP_SCALE) * MAP_SIZE + Math.floor(wrap(x) / MAP_SCALE);
+  function groundHeight(x, y) {
+    const mx = wrap(x - MAP_SCALE / 2) / MAP_SCALE;
+    const my = wrap(y - MAP_SCALE / 2) / MAP_SCALE;
+    const col = Math.floor(mx), row = Math.floor(my);
+    const nextCol = (col + 1) % MAP_SIZE;
+    const top = row * MAP_SIZE;
+    const bottom = ((row + 1) % MAP_SIZE) * MAP_SIZE;
+    return lerp(
+      lerp(height[top + col], height[top + nextCol], mx - col),
+      lerp(height[bottom + col], height[bottom + nextCol], mx - col),
+      my - row);
+  }
   const clouds = Array.from({length: 110}, () => {
     const seed = Math.floor(rng() * 2 ** 32);
     const size = 29 + rng() * 67;
@@ -149,22 +161,28 @@ function createWorld() {
         art: treeArt[Math.floor(treeRng() * treeArt.length)]});
     }
   }
-  return {map: map.canvas, height, pixels, ocean, index, clouds, cloudShade, spray, trees};
+  return {map: map.canvas, height, pixels, ocean, index, groundHeight, clouds, cloudShade, spray, trees};
 }
 
 function treeSprite(green) {
-  const ctx = surface(14, 18);
+  const ctx = surface(28, 36);
+  const rng = randomSeed(121);
   ctx.fillStyle = '#674831';
-  ctx.fillRect(6, 10, 3, 8);
-  ctx.fillStyle = '#164939';
-  ctx.fillRect(3, 2, 8, 13);
-  ctx.fillRect(1, 5, 12, 8);
-  ctx.fillStyle = green;
-  ctx.fillRect(4, 0, 6, 12);
-  ctx.fillRect(2, 4, 10, 6);
-  ctx.fillStyle = '#6ba354';
-  ctx.fillRect(4, 2, 4, 4);
-  ctx.fillRect(3, 5, 3, 3);
+  ctx.fillRect(12, 18, 5, 17);
+  ctx.fillStyle = '#9d8056';
+  ctx.fillRect(12, 23, 2, 10);
+  const foliage = [[13, 7, 7, 7], [19, 12, 8, 8], [7, 14, 7, 9], [14, 20, 9, 10]];
+  for (let y = 0; y < 31; y++) {
+    for (let x = 0; x < 28; x++) {
+      const density = Math.max(...foliage.map(([cx, cy, rx, ry]) =>
+        1 - ((x - cx) / rx) ** 2 - ((y - cy) / ry) ** 2));
+      if (density < rng() * .28) continue;
+      const tone = density + (15 - y) * .045 - x * .022 + rng() * .43;
+      ctx.fillStyle = tone > .97 ? '#829557' : tone > .62 ? '#5a7e46' :
+        tone > .26 ? green : tone > -.15 ? '#305740' : '#264737';
+      ctx.fillRect(x, y, 1, 1);
+    }
+  }
   return ctx.canvas;
 }
 

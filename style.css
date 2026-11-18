@@ -4,6 +4,7 @@ body{margin:0;min-height:100dvh;display:grid;place-items:center;overflow:hidden}
 .game{width:min(100vw,177.7778dvh);aspect-ratio:16/9;position:relative;isolation:isolate;background:#194c77;overflow:hidden}
 canvas{display:block;width:100%;height:100%;image-rendering:pixelated}
 .game.playing canvas{cursor:none}
+.game.ground canvas{touch-action:none}
 [hidden]{display:none!important}
 .hud,.overlay{position:absolute;inset:0}
 .hud{pointer-events:none;display:flex;gap:clamp(9px,2.6vw,40px);align-items:flex-start;padding:clamp(8px,1.7vw,25px);font-size:clamp(10px,1.18vw,18px);text-shadow:1px 2px #061620}
@@ -19,6 +20,7 @@ button:focus-visible{outline:3px solid #fff;outline-offset:4px}
 #sound[aria-pressed="true"]{color:#ffae57}
 .controls{position:absolute;bottom:2.4%;left:50%;transform:translateX(-50%);width:max-content;max-width:98%;text-align:center;background:#071522dc;color:#e7f6f8;padding:.55em 1em;font-size:.8em}
 .controls b{color:#ffab63}
+#pilot-prompt{position:absolute;left:50%;top:57%;transform:translateX(-50%);max-width:90%;margin:0;background:#071522e8;color:#fff3d4;padding:.55em .8em;text-align:center}
 .ejection{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);display:grid;justify-items:center;gap:.55em;width:max-content;padding:.75em 1.2em;background:#391c23ee;border:2px solid #ff9389;color:#fff4e7;text-align:center;font-size:clamp(12px,2vw,24px);box-shadow:0 0 0 3px #24151bc4}
 #eject{min-height:44px;padding:.35em .8em;background:#ffae57;color:#211415;border:0;font-weight:bold;touch-action:manipulation}
 #eject:hover{background:#ffd497}
@@ -33,6 +35,82 @@ h1 em{font-style:normal;color:#ffae57}
 #action:hover{background:#ffd497}
 #show-tutorial,#restart{margin-left:.65em;padding:.65em .85em;background:#102737;color:#f2fbff;border:1px solid #638d9e;font-size:clamp(10px,1.4vw,20px)}
 #show-tutorial:hover,#restart:hover{background:#1d435a}
+#solo-tactical{display:block;width:max-content;margin-top:.9em;padding:.38em 0;color:#a2e6ef;font-size:clamp(10px,1.3vw,18px);font-weight:bold;text-underline-offset:.25em}
+#solo-tactical:hover,#solo-tactical:focus-visible{color:#ffd497}
+.game.playing #solo-tactical{display:none}
+
+.game.intro {
+  --title-art: url("assets/tela-inicial.png");
+  container-type: inline-size;
+  background: #0b1c30;
+}
+.game.intro canvas {
+  position: absolute;
+  visibility: hidden;
+}
+.game.intro .overlay {
+  background: linear-gradient(90deg, #0b1c3073, transparent 55%), var(--title-art) center / cover no-repeat;
+}
+.game.intro h1 {
+  font-size: clamp(24px, 8.5cqw, 118px);
+  line-height: 1.01;
+}
+.game.intro .eyebrow {
+  font-size: clamp(8px, 1.05cqw, 15px);
+}
+.game.intro #description {
+  font-size: clamp(10px, 1.3cqw, 18px);
+}
+.game.intro #action,
+.game.intro #show-tutorial,
+.game.intro #solo-tactical {
+  font-size: clamp(10px, 1.4cqw, 18px);
+}
+
+@media (max-width: 600px) and (orientation: portrait) {
+  body:has(.game.intro) {
+    background: #0b1c30;
+  }
+  .game.intro {
+    aspect-ratio: auto;
+  }
+  .game.intro .overlay {
+    position: relative;
+    display: block;
+    padding: 0;
+    background: none;
+  }
+  .game.intro .overlay::before {
+    content: "";
+    display: block;
+    height: min(68cqw, 39dvh);
+    background: linear-gradient(#0b1c30, transparent 16%, transparent 68%, #0b1c30), var(--title-art) right center / cover no-repeat;
+  }
+  .game.intro .panel {
+    position: relative;
+    width: 100%;
+    margin-top: -1rem;
+    padding: 0 clamp(1rem, 6cqw, 2rem) 1.25rem;
+  }
+  .game.intro h1 {
+    font-size: clamp(40px, 12cqw, 66px);
+  }
+  .game.intro .eyebrow {
+    font-size: 10px;
+  }
+  .game.intro #description,
+  .game.intro #action,
+  .game.intro #show-tutorial,
+  .game.intro #solo-tactical {
+    font-size: 14px;
+  }
+  .game.intro #action,
+  .game.intro #show-tutorial {
+    min-height: 44px;
+    margin-top: .25rem;
+  }
+}
+
 #tutorial{width:min(34rem,calc(100% - 1.5rem));max-height:calc(100dvh - 1.5rem);padding:clamp(1rem,4vw,2rem);background:#102737;color:#e9faff;border:2px solid #638d9e;line-height:1.5;font-size:clamp(13px,2vw,16px)}
 #tutorial::backdrop{background:#061323ce}
 #tutorial h2{margin:0;color:#ffae57}

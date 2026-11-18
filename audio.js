@@ -75,8 +75,20 @@ function createFlightAudio() {
 
   function play(name, volume = 1) {
     if (muted || context?.state !== 'running' || voices.size >= 10) return;
-    const [length, high, low, level] = effects[name];
     const now = context.currentTime;
+    if (name === 'signal') {
+      const tone = context.createOscillator();
+      const envelope = context.createGain();
+      tone.frequency.value = 880;
+      envelope.gain.setValueAtTime(.14 * volume, now);
+      envelope.gain.exponentialRampToValueAtTime(.001, now + .14);
+      tone.connect(envelope).connect(compressor);
+      tone.onended = () => { tone.disconnect(); envelope.disconnect(); };
+      tone.start(now);
+      tone.stop(now + .14);
+      return;
+    }
+    const [length, high, low, level] = effects[name];
     const source = context.createBufferSource();
     const filter = context.createBiquadFilter();
     const envelope = context.createGain();
