@@ -24,6 +24,7 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--mint); outline-
 .header a:hover { color: var(--mint); }
 .header button, .buy-hint button { background: #182321; border: 1px solid var(--line); padding: .45em .8em; }
 .header button:hover, .buy-hint button:hover { border-color: var(--mint); }
+#sound-operation[aria-pressed="true"] { color: var(--amber); }
 .mode, .eyebrow, .scoreboard span, .scoreboard small, .vitals, .ammo span {
   font-size: .7rem; letter-spacing: .13em; font-weight: bold;
 }
@@ -84,7 +85,7 @@ footer { padding: .65em 0; color: var(--muted); font-size: clamp(.66rem, 1.1vw, 
 kbd { padding: .14em .4em; color: #e7eee5; background: #24302b; border: 1px solid var(--line); }
 .touch, .touch-guide { display: none; }
 @media (max-width: 630px) {
-  .header { min-height: 45px; font-size: .82rem; }
+  .header { min-height: 45px; font-size: .82rem; gap: 6px; }
   .mode, .eyebrow, .scoreboard span, .scoreboard small, .vitals, .ammo span { font-size: .52rem; letter-spacing: .055em; }
   .scoreboard > div { padding: .15em; }
   .primary, .buy-hint button { font-size: .75rem; }

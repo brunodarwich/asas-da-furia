@@ -77,7 +77,7 @@ function makeState() {
   return {player: makePlayer(), time: 0, camera: 0, score: 0, wave: 0, running: false,
     enemies: [], particles: [], shots: [], trail: [], trailTime: 0, banner: 0,
     waveDelay: 0, hit: 0, muzzle: 0, pointer: {x: MID_X, y: MID_Y},
-    pilotMode: null, pilot: null, wreck: null, shore: null, ground: null};
+    pilotMode: null, pilot: null, wreck: null, shore: null, ground: null, shake: 0};
 }
 
 function refreshHud() {
@@ -222,7 +222,7 @@ function shoot(ship, yaw, pitch, hostile) {
     dx: x * speed, dy: y * speed, dz: z * speed, hostile, life: hostile ? 1.85 : .92
   };
   state.shots.push(shot);
-  emit({...shot, dx: 0, dy: 0, dz: 0, type: 'flash', life: .075, size: 12,
+  emit({...shot, dx: 0, dy: 0, dz: 0, type: 'flash', life: .09, size: 17,
     color: hostile ? '#ff655a' : '#ffd17a'});
   if (!hostile) state.muzzle = .075;
   audio.play(hostile ? 'hostile' : 'cannon', hostile ? .45 : 1);
@@ -339,6 +339,7 @@ function terrainContact(p, vx, vy) {
   if (p.groundContact) return;
   p.groundContact = true;
   p.speed *= impact > 52 ? .68 : .89;
+  if (impact > 52) state.shake = Math.max(state.shake, .15);
   if (ocean[cell]) spray(p, 12);
   else burst({x: p.x, y: p.y, z: ground + 4}, false);
   audio.play(impact > 52 ? 'hit' : 'scrape');
@@ -392,10 +393,35 @@ function emit(particle) {
   state.particles.push({...particle, lifetime: particle.life});
 }
 
+function impactFx(point, material, volume = .48) {
+  const palette = impactColors[material];
+  const surface = material === 'dirt' || material === 'water';
+  const water = material === 'water';
+  const z = surface ? world.groundHeight(point.x, point.y) + 1 : point.z;
+  const origin = {x: point.x, y: point.y, z};
+  emit({...origin, dx: 0, dy: 0, dz: 0, life: surface ? .28 : .105, size: surface ? 13 : 7,
+    type: surface ? 'ring' : 'flash', color: palette[0]});
+  for (let i = 0; i < 11; i++) {
+    const angle = combatFxRandom() * TAU;
+    const speed = 8 + combatFxRandom() * (material === 'metal' ? 56 : 25);
+    const powder = !water && material !== 'metal' && i < 5;
+    emit({...origin, dx: Math.cos(angle) * speed, dy: Math.sin(angle) * speed,
+      dz: powder ? 8 : 8 + combatFxRandom() * 30, life: .12 + combatFxRandom() * .24,
+      size: powder ? 2.4 : 1.25, type: water ? 'spray' : powder ? 'dust' : 'spark',
+      color: palette[i % palette.length]});
+  }
+  const gap = Math.hypot(delta(point.x, state.player.x), delta(point.y, state.player.y), point.z - state.player.z);
+  if (gap < 330) audio.play(material, volume * clamp(1 - gap / 360, .2, 1));
+}
+
 function burst(ship, large) {
   const colors = ['#fff4aa', '#ffae55', '#f47a48', '#c44c48', '#626b70'];
   if (large) {
     emit({x: ship.x, y: ship.y, z: ship.z, dx: 0, dy: 0, dz: 0, life: .21, size: 49, type: 'flash', color: '#ffae58'});
+    emit({x: ship.x, y: ship.y, z: ship.z, dx: 0, dy: 0, dz: 0, life: .32, size: 60,
+      type: 'ring', color: '#e6a474'});
+    const gap = Math.hypot(delta(ship.x, state.player.x), delta(ship.y, state.player.y), ship.z - state.player.z);
+    if (gap < 170) state.shake = Math.max(state.shake, .18 * (1 - gap / 230));
     audio.play('explosion');
   }
   const count = large ? 44 : 10;
@@ -419,6 +445,7 @@ function damage(amount) {
   if (!p.hp) {
     burst(p, false);
     state.pilotMode = 'falling';
+    state.shake = .18;
     state.camera = 0;
     state.banner = 0;
     state.muzzle = 0;
@@ -605,16 +632,13 @@ function updatePilotCombat(dt) {
     if (!pilot.magazine) reloadPilot();
     else {
       pilot.magazine--;
-      const hit = ground.fire(state.player);
+      const result = ground.fire(state.player);
       pilot.cooldown = .23;
       pilot.recoil = Math.min(1, pilot.recoil + .45);
       state.muzzle = .09;
-      audio.play('cannon', .5);
-      if (hit) {
-        burst(hit, false);
-        audio.play('hit', .56);
-        pilot.confirm = .15;
-      }
+      audio.play('pistol', .72);
+      if (result.material) impactFx(result.point, result.material);
+      if (result.hit) pilot.confirm = .15;
       refreshPilotHud();
     }
   }
@@ -622,7 +646,7 @@ function updatePilotCombat(dt) {
   pilot.confirm = Math.max(0, (pilot.confirm ?? 0) - dt);
   if (!ground) return;
   const health = pilot.health;
-  const outcome = ground.update(dt, state.player, walking);
+  const outcome = ground.update(dt, state.player, walking, impactFx);
   if (ground.soldiers.some(soldier => soldier.flash === .095)) audio.play('hostile', .48);
   if (pilot.health !== health) {
     audio.play('hit', .53);
@@ -637,8 +661,11 @@ function updateProjectiles(dt) {
     shot.y = wrap(shot.y + shot.dy * dt);
     shot.z += shot.dz * dt;
     shot.life -= dt;
-    if (shot.life <= 0 || shot.z <= world.height[world.index(shot.x, shot.y)]) {
+    if (shot.life <= 0) continue;
+    const cell = world.index(shot.x, shot.y);
+    if (shot.z <= world.height[cell]) {
       shot.life = 0;
+      impactFx(shot, world.ocean[cell] ? 'water' : 'dirt', .38);
       continue;
     }
     const targets = shot.hostile ? [state.player] : state.enemies;
@@ -647,14 +674,13 @@ function updateProjectiles(dt) {
       shot.life = 0;
       if (shot.hostile) {
         if (!ship.rollTime) {
-          burst(shot, false);
-          audio.play('hit');
+          impactFx(shot, 'metal');
           damage(16 + state.wave * 2);
         }
       } else {
         ship.hp--;
-        burst(ship.hp ? shot : ship, ship.hp === 0);
-        if (ship.hp) audio.play('hit', .56);
+        if (ship.hp) impactFx(shot, 'metal');
+        else burst(ship, true);
         if (!ship.hp) {
           state.score += 100 * (state.wave + 1);
           refreshHud();
@@ -687,6 +713,7 @@ function step(dt) {
   state.time += dt;
   state.hit = Math.max(0, state.hit - dt);
   state.muzzle = Math.max(0, state.muzzle - dt);
+  state.shake = Math.max(0, state.shake - dt);
   state.banner = Math.max(0, state.banner - dt);
   updateParticles(dt);
   if (state.pilotMode) {

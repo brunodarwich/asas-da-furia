@@ -10,7 +10,7 @@ const ui = Object.fromEntries([
   'objective', 'feed', 'crosshair', 'feedback', 'health', 'armor', 'credits', 'weapon', 'magazine', 'reserve',
   'utility',
   'buy-hint', 'shop-button', 'overlay', 'eyebrow', 'operation-title', 'summary', 'play-operation',
-  'pause-operation', 'shop', 'shop-credits', 'close-shop', 'touch'
+  'pause-operation', 'sound-operation', 'shop', 'shop-credits', 'close-shop', 'touch'
 ].map(id => [id, document.getElementById(id)]));
 const shopItems = [...ui.shop.querySelectorAll('[data-buy]')];
 const touchSmoke = ui.touch.querySelector('[data-key="KeyQ"]');
@@ -170,6 +170,7 @@ function beginRound() {
   match.pulse = 0;
   match.spectator = 0;
   match.smokes = [];
+  match.combatFx = {traces: [], particles: []};
   match.result = '';
   match.hit = 0;
   match.hurt = 0;
@@ -367,6 +368,7 @@ function reload(player) {
 function updateWeapon(actor, dt) {
   actor.cooldown = Math.max(0, actor.cooldown - dt);
   actor.flash = Math.max(0, actor.flash - dt);
+  actor.artSmoke = Math.max(0, (actor.artSmoke ?? 0) - dt);
   actor.recoil = Math.max(0, actor.recoil - 1.7 * dt);
   if (actor.reload <= 0) return;
   actor.reload = Math.max(0, actor.reload - dt);
@@ -376,6 +378,46 @@ function updateWeapon(actor, dt) {
     ammo.magazine += added;
     ammo.reserve -= added;
   }
+}
+
+function operationImpact(point, material, volume) {
+  const particles = match.combatFx.particles;
+  const palette = impactColors[material];
+  const ring = material === 'signal';
+  particles.push({...point, life: ring ? .54 : .14, duration: ring ? .54 : .14,
+    type: ring ? 'ring' : 'flash', size: ring ? .64 : .14, color: palette[0], dx: 0, dy: 0, dz: 0});
+  for (let i = 0; i < (ring ? 16 : 8); i++) {
+    const angle = combatFxRandom() * Math.PI * 2;
+    const speed = .18 + combatFxRandom() * (material === 'metal' ? 1.7 : .85);
+    const smoke = material !== 'metal' && !ring && i < 5;
+    const duration = .14 + combatFxRandom() * .27;
+    particles.push({...point, dx: Math.cos(angle) * speed, dy: Math.sin(angle) * speed,
+      dz: .25 + combatFxRandom() * .7, life: duration, duration,
+      type: smoke ? 'smoke' : 'spark', size: smoke ? .075 : .026, color: palette[i % palette.length]});
+  }
+  if (particles.length > 120) particles.splice(0, particles.length - 120);
+  if (volume > 0) audio.play(ring ? 'complete' : material, volume);
+}
+
+function operationTrace(from, to, weapon, team, slot) {
+  const traces = match.combatFx.traces;
+  traces.push({from, to, weapon, team, slot, life: .09});
+  if (traces.length > 20) traces.shift();
+}
+
+function updateCombatFx(dt) {
+  const fx = match.combatFx;
+  fx.traces = fx.traces.filter(trace => (trace.life -= dt) > 0);
+  fx.particles = fx.particles.filter(particle => {
+    const x = particle.x + particle.dx * dt, y = particle.y + particle.dy * dt;
+    if (level.open(x, y)) {
+      particle.x = x;
+      particle.y = y;
+    }
+    particle.z = Math.max(.02, particle.z + particle.dz * dt);
+    if (particle.type === 'spark') particle.dz -= 3 * dt;
+    return (particle.life -= dt) > 0;
+  });
 }
 
 function shoot(player) {
@@ -389,13 +431,14 @@ function shoot(player) {
   ammo.magazine--;
   player.cooldown = weapon.cooldown;
   player.flash = .055;
+  player.artSmoke = .17;
   const spread = weapon.spread + player.recoil * .068 + player.speed ** 2 * .009;
   const yaw = player.angle + (Math.random() - .5) * spread;
   const pitch = player.pitch + player.recoil * .034 + (Math.random() - .5) * spread;
   player.recoil = Math.min(1, player.recoil + .33);
   const dx = Math.cos(yaw), dy = Math.sin(yaw);
-  const wall = renderer.cast(level, player.x, player.y, dx, dy).distance;
-  let nearest = wall;
+  const wall = renderer.cast(level, player.x, player.y, dx, dy);
+  let nearest = wall.distance;
   let struck, headshot;
   for (const actor of match.bots) {
     if (actor.hp <= 0) continue;
@@ -410,7 +453,16 @@ function shoot(player) {
     struck = actor;
     headshot = head;
   }
-  audio.play('cannon', .58);
+  audio.play(player.weapon, .73);
+  const floor = pitch < 0 ? -player.eye / pitch : Infinity;
+  const depth = struck ? nearest : Math.max(.05, Math.min(floor, nearest) - .026);
+  const point = {x: player.x + dx * depth, y: player.y + dy * depth, z: Math.max(.02, player.eye + pitch * depth)};
+  operationTrace({x: player.x, y: player.y, z: player.eye - .07}, point, player.weapon, player.team, player.slot);
+  if (struck) operationImpact(point, 'actor', .42);
+  else if (floor < nearest) operationImpact(point, 'dirt', .34);
+  else if (point.z < (wall.tile === 'C' ? .96 : 1.18)) {
+    operationImpact(point, 'CRB'.includes(wall.tile) ? 'metal' : 'stone', .42);
+  }
   if (struck && struck.team !== player.team) {
     damage(struck, Math.round(weapon.damage * (headshot ? 2.4 : 1)), player);
     match.hit = .16;
@@ -524,10 +576,27 @@ function updateBot(bot, dt) {
   bot.flash = .055;
   bot.cooldown = .32 + Math.random() * .3;
   const towardPlayer = gap(bot, match.player);
-  if (towardPlayer < 15) audio.play('hostile', clamp(1 - towardPlayer / 17, .08, .65));
+  if (towardPlayer < 15) audio.play(bot.weapon, clamp(1 - towardPlayer / 17, .08, .48));
   const running = target.speed > 2;
-  if (Math.random() < .68 - distance * .033 - (running ? .12 : 0)) {
+  const hit = Math.random() < .68 - distance * .033 - (running ? .12 : 0);
+  if (hit) {
     damage(target, Math.round(weapon.damage * (.46 + Math.random() * .4)), bot);
+  }
+  const from = {x: bot.x, y: bot.y, z: bot.eye};
+  if (hit) {
+    const point = {x: target.x, y: target.y, z: target.eye * .78};
+    operationTrace(from, point, bot.weapon, bot.team, bot.slot);
+    if (target !== match.player) operationImpact(point, 'actor', towardPlayer < 8 ? .21 : 0);
+  } else {
+    const angle = bot.angle + (combatFxRandom() < .5 ? -.08 : .08);
+    const dx = Math.cos(angle), dy = Math.sin(angle);
+    const wall = renderer.cast(level, bot.x, bot.y, dx, dy);
+    const range = Math.min(wall.distance - .026, distance + 1.4);
+    const point = {x: bot.x + dx * range, y: bot.y + dy * range, z: target.eye};
+    operationTrace(from, point, bot.weapon, bot.team, bot.slot);
+    if (range < distance + 1.4) {
+      operationImpact(point, 'CRB'.includes(wall.tile) ? 'metal' : 'stone', towardPlayer < 8 ? .17 : 0);
+    }
   }
 }
 
@@ -592,6 +661,7 @@ const living = team => match.actors.filter(actor => actor.team === team && actor
 
 function update(dt) {
   if (!match || paused || shopping || match.phase === 'done') return;
+  updateCombatFx(dt);
   if (match.phase === 'result') {
     match.time -= dt;
     if (match.time > 0) return;
@@ -629,6 +699,7 @@ function update(dt) {
     return;
   }
   if (match.time <= 0) {
+    if (site) operationImpact({...site, z: .53}, 'signal', .68);
     finishRound(site ? match.attacker : defenders, site ? 'transmissão concluída em ' + site.id : 'tempo esgotado');
     return;
   }
@@ -791,18 +862,31 @@ function look(yaw, pitch) {
 
 ui['play-operation'].addEventListener('click', () => paused ? setPaused(false) : startMatch());
 ui['pause-operation'].addEventListener('click', () => setPaused(!paused));
+function toggleOperationSound() {
+  const button = ui['sound-operation'];
+  const muted = button.getAttribute('aria-pressed') !== 'true';
+  button.setAttribute('aria-pressed', String(muted));
+  button.setAttribute('aria-label', muted ? 'Ativar som' : 'Silenciar');
+  button.textContent = muted ? '×♪' : '♪';
+  audio.setMuted(muted);
+}
+ui['sound-operation'].addEventListener('click', toggleOperationSound);
 ui['shop-button'].addEventListener('click', toggleShop);
 ui['close-shop'].addEventListener('click', toggleShop);
 for (const button of shopItems) button.addEventListener('click', () => buy(button.dataset.buy));
 
 const buyShortcuts = {'Digit1': 'smg', 'Digit2': 'rifle', 'Digit3': 'vest', 'Digit4': 'kit', 'Digit5': 'smoke'};
-const controls = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyB', 'KeyR', 'KeyE', 'KeyC', 'KeyG', 'KeyQ',
+const controls = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyB', 'KeyR', 'KeyE', 'KeyC', 'KeyG', 'KeyQ', 'KeyM',
   'ShiftLeft', 'ShiftRight', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Escape', 'Space',
   ...Object.keys(buyShortcuts)]);
 document.addEventListener('keydown', event => {
   if (!match || match.phase === 'done' || !controls.has(event.code) || event.altKey || event.ctrlKey || event.metaKey) return;
   if (event.code === 'Space' && (shopping || paused || event.target.matches('button, a'))) return;
   event.preventDefault();
+  if (event.code === 'KeyM') {
+    if (!event.repeat) toggleOperationSound();
+    return;
+  }
   if (event.code === 'Escape' && !event.repeat) {
     if (shopping) toggleShop();
     else setPaused(!paused);
@@ -893,7 +977,8 @@ function frame(now) {
   const teammates = player?.hp <= 0 ? actors.filter(actor => actor.team === 0 && actor.hp > 0) : [];
   const spectator = teammates[match?.spectator % teammates.length];
   const view = spectator || player || preview;
-  renderer.draw(level, view, actors, match?.device, match?.smokes, view === player && player.hp > 0, match?.hurt);
+  renderer.draw(level, view, actors, match?.device, match?.smokes, view === player && player.hp > 0,
+    match?.hurt, match?.combatFx);
   if (match && now >= nextHud) {
     updateHud();
     renderer.drawRadar(level, view, actors, match.device, combatSight);

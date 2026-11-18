@@ -102,8 +102,11 @@ function createRenderer(canvas, world) {
     const zoom = state.pilotMode ? PILOT_MAP_ZOOM : clamp(.79 - (p.z - 230) * .00045, .48, .89);
     const fallOffset = state.pilotMode === 'falling' ? 93 / zoom : 0;
     const setback = pilot ? (chase ? 58 : 0) : chase ? 124 : -8;
-    const x = top ? p.x : p.x - sin * setback;
-    const y = top ? p.y - fallOffset : p.y + cos * setback;
+    const shake = state.shake > 0 && !reducedCombatMotion.matches ? state.shake / .18 * 3 : 0;
+    const shakeX = Math.round(Math.sin(state.time * 150) * shake);
+    const shakeY = Math.round(Math.cos(state.time * 119) * shake);
+    const x = top ? p.x - shakeX / zoom : p.x - sin * setback;
+    const y = top ? p.y - fallOffset - shakeY / zoom : p.y + cos * setback;
     let z = p.z + (chase ? 36 : 5);
     if (firstPerson) z = p.z + (state.pilotMode === 'swimming' ? 5 + Math.sin(state.time * 4) * .6 : pilot.eyeHeight);
     else if (pilot) z = Math.max(p.z + 29, world.groundHeight(x, y) + 12);
@@ -112,6 +115,7 @@ function createRenderer(canvas, world) {
     const tilt = top ? 0 : -Math.sin(p.roll) * (chase ? .12 : .19);
     return {
       top, firstPerson, groundPerspective: Boolean(pilot) && !top, yaw, sin, cos, x, y, z, horizon, zoom, tilt,
+      shakeX, shakeY,
       project(point) {
         const dx = delta(point.x, x), dy = delta(point.y, y);
         if (top) return {x: MID_X + dx * zoom, y: MID_Y + dy * zoom, scale: zoom, depth: -point.z};
@@ -332,7 +336,6 @@ function createRenderer(canvas, world) {
       }
       if (ground.ship) add(ground.ship, 'patrol');
       for (const rock of ground.rocks) add(rock, 'rock');
-      for (const shot of ground.tracers) add(shot, 'groundTrace', shot.from);
       for (const soldier of ground.soldiers) {
         if (soldier.delay <= 0 && soldier.hp > 0) add(soldier, 'soldier');
       }
@@ -344,9 +347,10 @@ function createRenderer(canvas, world) {
         (a.kind === 'tree' && view.top ? Infinity : a.p.depth));
     for (const {item, kind, p} of visible) {
       const x = Math.round(p.x), y = Math.round(p.y);
-      const occlude = view.groundPerspective && kind !== 'tree' && kind !== 'groundTrace';
+      const occlude = view.groundPerspective && kind !== 'tree';
       if (occlude) {
-        const size = kind === 'wreck' || kind === 'shot' ? 150 : Math.ceil(Math.min(p.scale, 14) * 35);
+        const size = kind === 'particle' ? Math.min(82, Math.ceil(p.scale * item.size * 2.7) + 8) :
+          kind === 'wreck' || kind === 'shot' ? 150 : Math.ceil(Math.min(p.scale, 14) * 35);
         target.save();
         clipBehindTerrain(target, p, x - size, y - size, x + size, y + size);
       }
@@ -364,29 +368,22 @@ function createRenderer(canvas, world) {
         const lift = clamp((item.z - ground) * .12, 0, 29);
         drawAircraft(target, item, view, {...p, y: p.y - lift, scale: p.scale * .8});
       } else if (kind === 'shot') {
-        const duration = Math.min(.03, (item.hostile ? 1.85 : .92) - item.life);
+        const duration = Math.min(.058, (item.hostile ? 1.85 : .92) - item.life);
         const tail = view.project({x: item.x - item.dx * duration, y: item.y - item.dy * duration, z: item.z - item.dz * duration});
         const size = clamp(Math.round(p.scale * 2), 1, 4);
         if (tail && Math.hypot(tail.x - x, tail.y - y) < 100) {
-          target.strokeStyle = item.hostile ? '#ff615f' : '#ffc65a';
-          target.lineWidth = size + 1;
+          target.strokeStyle = item.hostile ? '#ed666586' : '#f9a75091';
+          target.lineWidth = size + 2;
           target.beginPath();
           target.moveTo(Math.round(tail.x), Math.round(tail.y));
           target.lineTo(x, y);
           target.stroke();
+          target.strokeStyle = item.hostile ? '#ffc4b3' : '#fff2bb';
+          target.lineWidth = Math.max(1, size - 1);
+          target.stroke();
         }
         target.fillStyle = item.hostile ? '#ffccc1' : '#fff9cc';
         target.fillRect(x, y, size, size);
-      } else if (kind === 'groundTrace') {
-        const end = view.project(item.to);
-        if (end) {
-          target.strokeStyle = '#ffbb708a';
-          target.lineWidth = 1.5;
-          target.beginPath();
-          target.moveTo(x, y);
-          target.lineTo(end.x, end.y);
-          target.stroke();
-        }
       } else if (kind === 'particle') {
         drawParticle(target, item, p, x, y);
       } else {
@@ -394,6 +391,45 @@ function createRenderer(canvas, world) {
       }
       if (occlude) target.restore();
     }
+    for (const shot of state.ground?.tracers ?? []) drawGroundTracer(target, view, shot);
+  }
+
+  function drawGroundTracer(target, view, shot) {
+    let {from} = shot;
+    const {to} = shot;
+    if (view.firstPerson && !shot.hostile && Math.hypot(delta(from.x, view.x), delta(from.y, view.y)) < 5) {
+      const startDepth = delta(from.x, view.x) * view.sin - delta(from.y, view.y) * view.cos;
+      const endDepth = delta(to.x, view.x) * view.sin - delta(to.y, view.y) * view.cos;
+      if (endDepth <= 14) return;
+      const t = (14 - startDepth) / (endDepth - startDepth);
+      from = {x: from.x + delta(to.x, from.x) * t + view.cos * 3,
+        y: from.y + delta(to.y, from.y) * t + view.sin * 3, z: lerp(from.z, to.z, t) - 3.4};
+    }
+    const dx = delta(to.x, from.x), dy = delta(to.y, from.y);
+    const segments = Math.ceil(clamp(Math.hypot(dx, dy) / 3, 1, 88));
+    let previous = null;
+    target.beginPath();
+    for (let step = 0; step <= segments; step++) {
+      const t = step / segments;
+      const p = view.project({x: from.x + dx*t, y: from.y + dy*t, z: lerp(from.z, to.z, t)});
+      if (!p) { previous = null; continue; }
+      const x = Math.round(p.x), y = Math.round(p.y);
+      if (view.groundPerspective &&
+          (x < 0 || x >= 768 || y < 0 || y >= 480 || terrainDepth[y * 384 + (x >> 1)] < p.depth - 2)) {
+        previous = null;
+        continue;
+      }
+      if (previous) {
+        target.moveTo(previous.x, previous.y);
+        target.lineTo(x, y);
+      }
+      previous = {x, y};
+    }
+    target.globalAlpha = shot.life / .105 * (reducedCombatMotion.matches ? .52 : .85);
+    target.strokeStyle = shot.hostile ? '#ffad84' : '#fce1a0';
+    target.lineWidth = 1.5;
+    target.stroke();
+    target.globalAlpha = 1;
   }
 
   function drawGroundObject(target, state, kind, projected, x, y, item, view) {
@@ -504,10 +540,7 @@ function createRenderer(canvas, world) {
   }
 
   function rectFlash(target, x, y, size) {
-    target.fillStyle = '#dd9f64';
-    target.fillRect(x - size, y - size / 2, size * 2, size);
-    target.fillStyle = '#f8e7ba';
-    target.fillRect(x - size * .45, y - size * .3, size, size * .6);
+    drawCombatFlash(target, x, y, size * 2, 1, '#dd9f64');
   }
 
   function drawGroundHud(state, view) {
@@ -562,14 +595,10 @@ function createRenderer(canvas, world) {
     }
     if (compact) drawPistol(state);
     else if (state.muzzle > 0) {
-      if (view.top) drawPistolFlash(MID_X + Math.sin(pilot.yaw) * 14, MID_Y - Math.cos(pilot.yaw) * 14);
-      else drawPistolFlash(359, 263);
+      const fade = state.muzzle / .09;
+      if (view.top) drawCombatFlash(ctx, MID_X + Math.sin(pilot.yaw) * 14, MID_Y - Math.cos(pilot.yaw) * 14, 12, fade, '#ffbd58');
+      else drawCombatFlash(ctx, 359, 263, 12, fade, '#ffbd58');
     }
-  }
-
-  function drawPistolFlash(x, y) {
-    polygon('#ffbd58', [[x,y-11],[x+4,y-3],[x+12,y],[x+4,y+3],[x,y+9],[x-4,y+3],[x-10,y],[x-4,y-3]]);
-    polygon('#fff5bb', [[x,y-6],[x+6,y],[x,y+5],[x-5,y]]);
   }
 
   function drawSwimmingArms(state) {
@@ -592,7 +621,8 @@ function createRenderer(canvas, world) {
     const x = 351 + Math.sin(state.time * 12) * stride * 5;
     const y = 254 + Math.cos(state.time * 24) * stride * 3;
     const reload = Math.sin(Math.PI * state.pilot.reload / 1.08);
-    drawHeldWeaponArt(ctx, pilotPistol, x, y, 1.4, state.pilot.recoil, reload, state.muzzle > .02);
+    drawHeldWeaponArt(ctx, pilotPistol, x, y, 1.4, state.pilot.recoil, reload, state.muzzle / .09,
+      state.muzzle / .09);
   }
 
   function drawPilot(state, view) {
@@ -646,13 +676,14 @@ function createRenderer(canvas, world) {
     target.fillStyle = item.color;
     target.globalAlpha = fade;
     if (item.type === 'flash') {
-      const radius = Math.max(2, Math.round(size * (1.1 - fade * .3)));
-      target.globalAlpha *= .45;
-      target.fillRect(x - radius, y - radius / 3, radius * 2, radius * .66);
-      target.fillRect(x - radius / 3, y - radius, radius * .66, radius * 2);
-      target.globalAlpha = fade;
-      target.fillStyle = '#fff2b0';
-      target.fillRect(x - radius * .25, y - radius * .25, radius * .5, radius * .5);
+      drawCombatFlash(target, x, y, size * (1.1 - fade * .3), 1, item.color);
+    } else if (item.type === 'ring') {
+      drawCombatRing(target, x, y, size * (.32 + (1 - fade) * 1.45), 1, item.color);
+    } else if (item.type === 'dust') {
+      const width = Math.max(2, Math.round(size * (1.25 - fade * .7)));
+      target.globalAlpha = fade * .33;
+      target.fillRect(x - width / 2, y - width / 3, width, Math.max(1, width / 2));
+      target.fillRect(x - width / 3, y - width / 2, width * .55, Math.max(1, width / 3));
     } else if (item.type === 'smoke') {
       const width = Math.max(3, Math.round(size * (1.2 + (1 - fade) * 2)));
       target.globalAlpha *= .55;
@@ -666,6 +697,14 @@ function createRenderer(canvas, world) {
     } else {
       const width = Math.min(size, 12);
       target.fillRect(x, y, width, item.type === 'spark' ? Math.max(1, width >> 1) : width);
+      if (item.type === 'spark' && width > 1) {
+        target.strokeStyle = item.color;
+        target.lineWidth = 1;
+        target.beginPath();
+        target.moveTo(x, y);
+        target.lineTo(x - clamp(item.dx * .12, -8, 8), y + clamp(item.dz * .13, -8, 8));
+        target.stroke();
+      }
     }
     target.globalAlpha = 1;
   }
@@ -828,7 +867,7 @@ function createRenderer(canvas, world) {
       drawTrails(scene, state, view);
       drawObjects(scene, state, view);
       ctx.save();
-      ctx.translate(MID_X, MID_Y);
+      ctx.translate(MID_X + view.shakeX, MID_Y + view.shakeY);
       ctx.rotate(view.tilt);
       ctx.drawImage(scene.canvas, -384, -240);
       ctx.restore();
@@ -836,7 +875,7 @@ function createRenderer(canvas, world) {
     if (!state.pilotMode && state.camera === 2) {
       cockpit(state);
       if (state.muzzle > 0) {
-        ctx.fillStyle = `rgba(255,191,101,${state.muzzle * 2.3})`;
+        ctx.fillStyle = `rgba(255,191,101,${state.muzzle * (reducedCombatMotion.matches ? .7 : 2.3)})`;
         ctx.fillRect(166, 239, 308, 22);
       }
     }
@@ -845,7 +884,7 @@ function createRenderer(canvas, world) {
       if (state.pilot) drawGroundHud(state, view);
       const hit = state.pilot?.hit ?? state.hit;
       if (hit > 0) {
-        ctx.fillStyle = `rgba(234,63,58,${hit * .55})`;
+        ctx.fillStyle = `rgba(234,63,58,${hit * (reducedCombatMotion.matches ? .26 : .55)})`;
         ctx.fillRect(0, 0, WIDTH, HEIGHT);
       }
       if (state.banner > 0) {

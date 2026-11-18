@@ -195,13 +195,12 @@ function createGroundMission(world, player, controls) {
       const z = from.z + dz * i / steps;
       const impact = {x, y, z};
       const height = world.groundHeight(x, y);
-      if (z <= height || rocks.some(rock => z >= rock.z - 3 && z <= rock.z + rock.height &&
-          distance(rock, impact) < rock.radius)) {
-        return {point: impact};
-      }
+      if (z <= height) return {point: impact, material: world.ocean[world.index(x, y)] ? 'water' : 'dirt'};
+      if (rocks.some(rock => z >= rock.z - 3 && z <= rock.z + rock.height &&
+          distance(rock, impact) < rock.radius)) return {point: impact, material: 'stone'};
       const hit = targets.find(soldier => soldier.delay <= 0 && soldier.hp > 0 &&
         z >= soldier.z && z <= soldier.z + 18 && distance(soldier, impact) < (z > soldier.z + 13 ? 3 : 5));
-      if (hit) return {point: impact, hit};
+      if (hit) return {point: impact, hit, material: 'actor'};
     }
     return null;
   }
@@ -213,7 +212,7 @@ function createGroundMission(world, player, controls) {
     blocks(point, radius = 2) {
       return rocks.some(rock => distance(point, rock) < rock.radius + radius);
     },
-    update(dt, pilot, walking) {
+    update(dt, pilot, walking, impactFx) {
       this.elapsed += dt;
       this.tracers = this.tracers.filter(shot => (shot.life -= dt) > 0);
       const cell = world.index(pilot.x, pilot.y);
@@ -273,7 +272,10 @@ function createGroundMission(world, player, controls) {
               targetBody.x = wrap(targetBody.x - Math.sin(angle) * miss);
               targetBody.y = wrap(targetBody.y + Math.cos(angle) * miss);
             }
-            this.tracers.push({from: muzzle, to: trace(muzzle, targetBody)?.point ?? targetBody, life: .105});
+            const contact = trace(muzzle, targetBody);
+            const point = contact?.point ?? targetBody;
+            this.tracers.push({from: muzzle, to: point, life: .105, hostile: true});
+            if (contact || accurate) impactFx(point, contact?.material ?? 'actor', .32);
             soldier.flash = .095;
             soldier.cooldown = .72 + Math.random() * .4;
             if (accurate) {
@@ -319,12 +321,15 @@ function createGroundMission(world, player, controls) {
       const spread = controls.spread;
       const yaw = controls.yaw + (Math.random() - .5) * spread;
       const pitch = controls.pitch + controls.recoil * .021 + (Math.random() - .5) * spread;
-      const {hit, point} = this.aim(pilot, yaw, pitch);
-      if (!hit) return null;
+      const result = this.aim(pilot, yaw, pitch);
+      const {hit, point} = result;
+      this.tracers.push({from: {x: pilot.x, y: pilot.y, z: pilot.z + controls.eyeHeight},
+        to: point, life: .105, hostile: false});
+      if (!hit) return result;
       hit.hp = Math.max(0, hit.hp - (point.z - hit.z > 13 ? 100 : 37));
       hit.shelter = takeCover(hit, pilot);
       hit.retreat = 1.4;
-      return point;
+      return result;
     }
   };
   return mission;

@@ -208,7 +208,7 @@ function createTacticalRenderer(canvas, radar) {
       if (sprite.flash > 0) {
         const start = Math.max(0, Math.round(center + w * sprite.flashOffset));
         const end = Math.min(width, start + Math.max(2, Math.round(w * .1)));
-        ctx.fillStyle = '#eac085';
+        ctx.fillStyle = reducedCombatMotion.matches ? '#eac08569' : '#eac085';
         for (let x = start; x < end; x++) {
           if (sprite.depth < depthBuffer[x]) ctx.fillRect(x, bottom - h * .55, 1, Math.max(2, w * .08));
         }
@@ -216,13 +216,96 @@ function createTacticalRenderer(canvas, radar) {
     }
   }
 
+  function weaponPosition(view) {
+    const motion = Math.min(1, view.speed / 2.5);
+    return {x: width * .5 + Math.sin(view.stride) * motion * 6,
+      y: height - 91 + Math.cos(view.stride * 2) * motion * 3};
+  }
+
   function drawWeapon(view) {
-    const {weapon, flash, recoil, reload, stride, speed} = view;
-    const motion = Math.min(1, speed / 2.5);
-    const x = width * .5 + Math.sin(stride) * motion * 6;
-    const y = height - 91 + Math.cos(stride * 2) * motion * 3;
+    const {weapon, flash, recoil, reload} = view;
+    const {x, y} = weaponPosition(view);
     const loading = Math.sin(Math.PI * reload / weapons[weapon].reload);
-    drawHeldWeaponArt(ctx, handheld[weapon], x, y, 1.26, recoil, loading, flash > 0);
+    drawHeldWeaponArt(ctx, handheld[weapon], x, y, 1.26, recoil, loading,
+      flash / .055, (view.artSmoke ?? 0) / .17, weapon);
+  }
+
+  function drawCombatFx(view, horizon, fx) {
+    const cos = Math.cos(view.angle), sin = Math.sin(view.angle);
+    const eye = view.eye ?? .54;
+    const project = point => {
+      const dx = point.x - view.x, dy = point.y - view.y;
+      const depth = dx * cos + dy * sin;
+      if (depth < .16) return null;
+      return {x: width / 2 + focal * (dy * cos - dx * sin) / depth,
+        y: horizon + focal * (eye - point.z) / depth, depth};
+    };
+    for (const trace of fx.traces) {
+      const {from, to} = trace;
+      const own = view.team === trace.team && view.slot === trace.slot &&
+        Math.hypot(from.x - view.x, from.y - view.y) < .24;
+      let start = from;
+      if (own) {
+        const depth = .52;
+        const position = weaponPosition(view);
+        const [mx, my] = handheld[trace.weapon].muzzle;
+        const screenX = position.x + (mx - 5) * 1.26 + view.recoil * 6;
+        const screenY = position.y + (my + 3) * 1.26 - view.recoil * 8;
+        const side = (screenX - width / 2) * depth / focal;
+        start = {x: view.x + cos * depth - sin * side, y: view.y + sin * depth + cos * side,
+          z: eye + (horizon - screenY) * depth / focal};
+      }
+      let a = project(start);
+      let b = project(to);
+      if (!a || !b) {
+        const da = (start.x - view.x) * cos + (start.y - view.y) * sin;
+        const db = (to.x - view.x) * cos + (to.y - view.y) * sin;
+        if (Math.max(da, db) < .17) continue;
+        const t = (.17 - da) / (db - da);
+        const clipped = project({x: start.x + (to.x - start.x) * t,
+          y: start.y + (to.y - start.y) * t, z: start.z + (to.z - start.z) * t});
+        a ??= clipped;
+        b ??= clipped;
+      }
+      const steps = Math.ceil(Math.min(640, Math.max(1, Math.abs(b.x - a.x), Math.abs(b.y - a.y))));
+      ctx.globalAlpha = trace.life / .09 * (reducedCombatMotion.matches ? .38 : .7);
+      ctx.fillStyle = trace.team === 0 ? '#f7e5ad' : '#eaa477';
+      const thickness = trace.weapon === 'rifle' ? 2 : 1;
+      for (let i = 0; i <= steps; i++) {
+        const t = i / steps;
+        const x = Math.round(a.x + (b.x - a.x) * t);
+        const y = Math.round(a.y + (b.y - a.y) * t);
+        if (x < 0 || x >= width || y < 0 || y >= height) continue;
+        const depth = 1 / ((1 - t) / a.depth + t / b.depth);
+        if (depth < depthBuffer[x]) ctx.fillRect(x, y, 1, thickness);
+      }
+    }
+    ctx.globalAlpha = 1;
+    for (const particle of fx.particles) {
+      const p = project(particle);
+      if (!p || p.x < -35 || p.x > width + 35 || p.y < -35 || p.y > height + 35) continue;
+      const fade = particle.life / particle.duration;
+      const radius = Math.max(1, Math.min(36, focal * particle.size / p.depth));
+      const size = Math.ceil(radius * 1.55);
+      ctx.save();
+      ctx.beginPath();
+      for (let x = Math.max(0, Math.floor(p.x - size)); x < Math.min(width, Math.ceil(p.x + size)); x++) {
+        if (p.depth < depthBuffer[x]) ctx.rect(x, Math.floor(p.y - size), 1, size * 2);
+      }
+      ctx.clip();
+      if (particle.type === 'flash') {
+        drawCombatFlash(ctx, p.x, p.y, radius, fade, particle.color);
+      } else if (particle.type === 'ring') {
+        drawCombatRing(ctx, p.x, p.y, radius * (1.45 - fade), fade, particle.color, .42);
+      } else {
+        ctx.fillStyle = particle.color;
+        ctx.globalAlpha = fade * (particle.type === 'smoke' ? .34 : .85);
+        const width = particle.type === 'smoke' ? radius * (1.5 - fade) : radius;
+        ctx.fillRect(Math.round(p.x - width / 2), Math.round(p.y - width / 2),
+          Math.round(width), Math.max(1, Math.round(width * .65)));
+      }
+      ctx.restore();
+    }
   }
 
   function drawRadar(level, player, actors, device, visible) {
@@ -274,10 +357,11 @@ function createTacticalRenderer(canvas, radar) {
 
   return {
     cast,
-    draw(level, view, actors, device, smokes = [], showWeapon, hurt) {
+    draw(level, view, actors, device, smokes = [], showWeapon, hurt, fx) {
       const horizon = Math.round(height / 2 + (view.pitch || 0) * focal + (view.recoil || 0) * 3);
       drawWorld(level, view, horizon);
       drawSprites(level, view, actors, horizon, device, smokes);
+      if (fx?.traces.length || fx?.particles.length) drawCombatFx(view, horizon, fx);
       const cloud = smokes.find(smoke => !smoke.fuse && Math.hypot(view.x - smoke.x, view.y - smoke.y) < smoke.radius);
       if (cloud) {
         ctx.fillStyle = '#a7b4abd9';
@@ -285,7 +369,7 @@ function createTacticalRenderer(canvas, radar) {
       }
       if (showWeapon) drawWeapon(view);
       if (hurt > 0) {
-        ctx.fillStyle = 'rgba(177,44,26,' + (hurt * .42) + ')';
+        ctx.fillStyle = 'rgba(177,44,26,' + (hurt * (reducedCombatMotion.matches ? .22 : .42)) + ')';
         ctx.fillRect(0, 0, width, height);
       }
     },

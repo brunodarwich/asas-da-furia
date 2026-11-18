@@ -70,22 +70,29 @@ function createFlightAudio() {
   const effects = {
     cannon: [.085, 1450, 330, .24], hostile: [.12, 820, 240, .13],
     hit: [.16, 790, 155, .29], explosion: [.57, 690, 48, .48],
-    boost: [.42, 440, 155, .25], scrape: [.23, 920, 180, .27]
+    boost: [.42, 440, 155, .25], scrape: [.23, 920, 180, .27],
+    pistol: [.115, 2350, 330, .27], smg: [.075, 1810, 390, .21], rifle: [.155, 2860, 175, .32],
+    metal: [.155, 4550, 990, .18], stone: [.135, 1300, 210, .2],
+    dirt: [.12, 680, 125, .2], water: [.19, 1720, 275, .19], actor: [.105, 1100, 165, .21]
   };
 
   function play(name, volume = 1) {
     if (muted || context?.state !== 'running' || voices.size >= 10) return;
     const now = context.currentTime;
-    if (name === 'signal') {
+    if (name === 'signal' || name === 'complete') {
+      const complete = name === 'complete';
+      const length = complete ? .42 : .14;
       const tone = context.createOscillator();
       const envelope = context.createGain();
       tone.frequency.value = 880;
+      if (complete) tone.frequency.exponentialRampToValueAtTime(1320, now + .16);
       envelope.gain.setValueAtTime(.14 * volume, now);
-      envelope.gain.exponentialRampToValueAtTime(.001, now + .14);
+      envelope.gain.exponentialRampToValueAtTime(.001, now + length);
       tone.connect(envelope).connect(compressor);
-      tone.onended = () => { tone.disconnect(); envelope.disconnect(); };
+      voices.add(tone);
+      tone.onended = () => { voices.delete(tone); tone.disconnect(); envelope.disconnect(); };
       tone.start(now);
-      tone.stop(now + .14);
+      tone.stop(now + length);
       return;
     }
     const [length, high, low, level] = effects[name];

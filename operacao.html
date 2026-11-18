@@ -12,6 +12,7 @@
     <header class="header">
       <a href="index.html">← <span>Asas da Fúria</span></a>
       <span class="mode">FPS TÁTICO <i></i> SOLO 5×5</span>
+      <button id="sound-operation" type="button" aria-label="Silenciar" aria-pressed="false">♪</button>
       <button id="pause-operation" type="button" hidden>Pausar</button>
     </header>
     <section class="arena" aria-label="Operação Farol">
@@ -85,6 +86,7 @@
         <span><kbd>G</kbd> soltar dispositivo</span>
         <span><kbd>Q</kbd> fumaça</span>
         <span><kbd>B</kbd> comprar</span>
+        <span><kbd>M</kbd> som</span>
         <span><kbd>Esc</kbd> pausar</span>
       </div>
       <span class="touch-guide">Arraste na arena para mirar. Segure Operar nos pontos A ou B.</span>
@@ -92,6 +94,7 @@
   </main>
   <script src="audio.js"></script>
   <script src="character-art.js"></script>
+  <script src="combat-fx.js"></script>
   <script src="operacao-render.js"></script>
   <script src="operacao.js"></script>
 </body>

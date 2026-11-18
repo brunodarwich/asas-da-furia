@@ -193,7 +193,7 @@ function makeHeldWeaponArt(weapon, pilot = false) {
   return {image, muzzle, loadingHand};
 }
 
-function drawHeldWeaponArt(ctx, art, x, y, scale, recoil, reload, flash) {
+function drawHeldWeaponArt(ctx, art, x, y, scale, recoil, reload, flash, smoke = 0, weapon = 'pistol') {
   ctx.save();
   ctx.translate(Math.round(x + recoil * 6), Math.round(y - recoil * 8 + reload * 28));
   ctx.rotate(reload * .23 - recoil * .035);
@@ -202,11 +202,19 @@ function drawHeldWeaponArt(ctx, art, x, y, scale, recoil, reload, flash) {
   if (reload > .15) {
     ctx.drawImage(art.loadingHand, Math.round(6 + reload * 28), Math.round(88 - reload * 57));
   }
-  if (flash) {
-    const [mx, my] = art.muzzle;
-    ctx.translate(mx, my + 5);
-    paintedShape(ctx, '#e7a45b', [[2,0],[-3,5],[-13,3],[-9,0],[-19,-7],[-8,-5],[-9,-12],[-2,-6]]);
-    paintedShape(ctx, '#fff0c3', [[1,1],[-4,2],[-11,-4],[-4,-3],[-6,-8]]);
+  const [mx, my] = art.muzzle;
+  if (smoke > 0) {
+    const progress = 1 - smoke;
+    const drift = progress * (weapon === 'rifle' ? 15 : 8);
+    ctx.globalAlpha = smoke * .25;
+    ctx.fillStyle = '#c4c7b7';
+    ctx.fillRect(mx - 9 - drift, my - 4 - drift, 6 + drift, 3 + drift / 3);
+    ctx.fillRect(mx - 13 - drift, my - 7 - drift, 7 + drift, 3);
+    ctx.globalAlpha = 1;
+  }
+  if (flash > 0) {
+    const radius = weapon === 'rifle' ? 26 : weapon === 'smg' ? 17 : 20;
+    drawCombatFlash(ctx, mx - 5, my + 3, radius, Math.min(1, flash), '#f5a654');
   }
   ctx.restore();
 }
